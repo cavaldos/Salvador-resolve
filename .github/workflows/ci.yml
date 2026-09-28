@@ -1,0 +1,60 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # Frontend: type-check (tsc) + production bundle (vite build), on the
+  # same Node version local development uses. No test suite exists yet, so
+  # the build is the only frontend signal.
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      - run: yarn build
+
+  # Rust: fmt + clippy + check. Tauri needs its Linux system libraries even
+  # for `cargo check`, because tauri-build parses the system webkit/gtk
+  # versions at build-script time.
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: yarn
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - run: yarn install --frozen-lockfile
+      - name: cargo fmt
+        working-directory: src-tauri
+        run: cargo fmt --all --check
+      - name: cargo clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: cargo check
+        working-directory: src-tauri
+        run: cargo check --all-targets --all-features

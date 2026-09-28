@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens. Tailwind v4 exposes these as utilities:
+ *   bg-surface, text-ink, border-line, bg-accent, ...
+ * Override the values below to retheme the whole app from one place.
+ */
+@theme {
+  --color-surface: #ffffff;
+  --color-raised: #f6f6f7;
+  --color-line: #e4e4e7;
+  --color-ink: #18181b;
+  --color-muted: #71717a;
+  --color-accent: #3b82f6;
+}
+
+/* Respect the OS "reduce motion" setting. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

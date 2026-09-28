@@ -1,0 +1,120 @@
+name: release
+
+# Pushing a vX.Y.Z tag is the whole release process: `script/release.sh vX.Y.Z`
+# creates and pushes the tag, this workflow does the rest.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+# A re-pushed tag (script/release.sh force-moves it) must not run twice.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # A Tauri app cannot be cross-compiled for another OS: webkit/gtk and the
+  # Windows and macOS bundlers only work natively. So every target gets its
+  # own runner of the matching OS.
+  #
+  # All four jobs upload into the same DRAFT release. tauri-action merges the
+  # `platforms` map of the existing latest.json on every upload, so the draft
+  # accumulates entries for all targets; the publish job flips it live only
+  # after every build succeeded, so a half-built release is never visible.
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            name: macOS (Apple Silicon)
+            args: --target aarch64-apple-darwin
+          - platform: macos-15-intel
+            name: macOS (Intel)
+            args: --target x86_64-apple-darwin
+          - platform: ubuntu-latest
+            name: Linux (x86_64)
+            args: --target x86_64-unknown-linux-gnu
+          - platform: windows-latest
+            name: Windows (x86_64)
+            args: --target x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.platform }}
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: yarn
+
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.platform }}
+
+      # Tauri v2 Linux system dependencies + the bundlers the AppImage/deb/rpm
+      # targets need. desktop-file-utils is required by the deb target and rpm
+      # by the rpm target, both of which are in the `all` bundle targets.
+      - name: install Tauri system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+            desktop-file-utils rpm
+
+      - name: install frontend dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: build, sign and upload
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signing the updater artifacts; the public half is committed in
+          # src-tauri/tauri.conf.json under plugins.updater.pubkey.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: ${{ github.ref_name }}
+          releaseDraft: true
+          prerelease: false
+          # Generates the signed latest.json updater manifest and merges this
+          # target's platform entry into the draft release's copy.
+          uploadUpdaterJson: true
+          generateReleaseNotes: true
+          args: ${{ matrix.args }}
+
+  # Only reached when all four builds succeeded: flip the draft to published,
+  # which is what makes /releases/latest/download/latest.json resolve for the
+  # updater endpoint configured in tauri.conf.json.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # A draft release cannot be fetched by tag, so it has to be looked up
+          # in the (paginated) release list. `// ""` turns "no match" (jq
+          # null) into an empty string for the check below.
+          id="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq "[.[] | select(.draft == true and .tag_name == \"${TAG}\")][0].id // \"\"")"
+          if [ -z "$id" ]; then
+            echo "error: no draft release found for tag ${TAG}" >&2
+            exit 1
+          fi
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${id}" \
+            -f draft=false -f prerelease=false >/dev/null
+          echo "published ${TAG} (release id ${id})"

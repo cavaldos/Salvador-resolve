@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # Frontend dependencies (yarn 1 / package.json)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  # Rust crate graph, which lives under src-tauri/ in a Tauri project
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+  # The actions used by the CI and release workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

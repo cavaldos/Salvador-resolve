@@ -1,12 +1,18 @@
 import { defineConfig } from "vite";
 import preact from "@preact/preset-vite";
+import tailwindcss from "@tailwindcss/vite";
 // @ts-expect-error type error without @types/node package
 import process from "node:process";
 const host = process.env.TAURI_DEV_HOST;
+// The interface Vite binds to and the address the client is told to use for the
+// HMR websocket are separate: when binding to a wildcard (0.0.0.0) the client
+// must be handed a real address, because nothing can connect to 0.0.0.0.
+// script/dev.sh --lan sets both.
+const hmrHost = process.env.TAURI_DEV_HMR_HOST ?? host;
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
-  plugins: [preact()],
+  plugins: [preact(), tailwindcss()],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
@@ -20,7 +26,7 @@ export default defineConfig(() => ({
     hmr: host
       ? {
           protocol: "ws",
-          host,
+          host: hmrHost,
           port: 1421,
         }
       : undefined,

@@ -1,11 +1,14 @@
 import { useState } from "preact/hooks";
 import preactLogo from "./assets/preact.svg";
 import { invoke } from "@tauri-apps/api/core";
+import { UpdateBanner } from "./update/UpdateBanner";
+import { useUpdater } from "./update/useUpdater";
 import "./App.css";
 
 function App() {
   const [greetMsg, setGreetMsg] = useState("");
   const [name, setName] = useState("");
+  const updater = useUpdater();
 
   async function greet() {
     // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -44,6 +47,12 @@ function App() {
         <button type="submit">Greet</button>
       </form>
       <p>{greetMsg}</p>
+
+      <UpdateBanner
+        state={updater.state}
+        onInstall={() => void updater.install()}
+        onDismiss={updater.dismiss}
+      />
     </main>
   );
 }

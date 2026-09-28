@@ -1,4 +1,4 @@
-# Logs
+# ---------------------------------------------------------------- logs ------
 logs
 *.log
 npm-debug.log*
@@ -7,12 +7,66 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# ------------------------------------------------------------ dependencies --
 node_modules
 dist
 dist-ssr
 *.local
 
-# Editor directories and files
+# ----------------------------------------------- secrets & local env files --
+# Real credentials never get committed. .env.example is tracked on purpose:
+# it is the template, it holds no values.
+.env
+.env.*
+!.env.example
+
+# ------------------------------------------------------------ Tauri build --
+# Tauri updater signing keys — NEVER commit these. Losing the private key
+# permanently breaks updates; leaking it lets anyone ship a fake update.
+.secrets/
+*.key
+*.key.pub
+
+src-tauri/target/
+
+# ------------------------------------- coding agent state (local only) ------
+# Session transcripts, task lists, caches and per-machine config that coding
+# agents write into the working tree. None of it is project source.
+# (A `#` is only a comment at the START of a line — trailing text after a
+# pattern becomes part of the pattern, which silently matches nothing.)
+
+# pi: session state and task lists
+.pi/
+# opencode: installed deps and sessions
+.opencode/
+# herdr: terminal multiplexer state
+.herdr/
+# Claude Code
+.claude/
+# Cursor
+.cursor/
+# Codex
+.codex/
+# Gemini CLI
+.gemini/
+# MCP server config (usually local paths and tokens)
+.mcp.json
+
+# aider keeps its history and caches as loose files, not a directory
+.aider.chat.history.md
+.aider.input.history
+.aider.tags.cache.v*/
+.aider.conf.yml
+
+# Scratch files the agents leave behind
+.agent/
+*-session.json
+
+# NOTE: AGENTS.md, AGENTS.override.md and CLAUDE.md are deliberately NOT
+# ignored. They are project documentation meant to be committed, so the whole
+# team and any CI agent read the same instructions.
+
+# ----------------------------------------- editor directories and files ----
 .vscode/*
 !.vscode/extensions.json
 .idea
