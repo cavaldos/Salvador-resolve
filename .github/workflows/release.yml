@@ -75,7 +75,7 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: build, sign and upload
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Signing the updater artifacts; the public half is committed in
