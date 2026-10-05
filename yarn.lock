@@ -584,9 +584,9 @@
     "@tauri-apps/api" "^2.12.0"
 
 "@tauri-apps/plugin-updater@^2":
-  version "2.13.0"
-  resolved "https://registry.yarnpkg.com/@tauri-apps/plugin-updater/-/plugin-updater-2.13.0.tgz#309eff1cef34817ad6238c7f78fa4a3385e72b63"
-  integrity sha512-9iwTSOlxMPZGI6M84Nd00rv6g+xERo8g4GDvG9cazOao+HjdIHZYCcvkvSP6JGn7Z50/R8t2jbR+PxQxf2qKMQ==
+  version "2.13.1"
+  resolved "https://registry.yarnpkg.com/@tauri-apps/plugin-updater/-/plugin-updater-2.13.1.tgz#2ad227ba05293fe34c5c59c0ff8a1cd690c8e9a8"
+  integrity sha512-+STDzJ0sdQLImjc63zkv6Nncimqeo6jyCWoTQtbSwgGLNj1qbP9I6LC4p5R5ocBk3gNKAZs6i/AJz0jxysytiw==
   dependencies:
     "@tauri-apps/api" "^2.12.0"
 
