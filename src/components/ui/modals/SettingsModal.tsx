@@ -6,6 +6,7 @@ import {
   HardDrive,
   Captions,
   Keyboard,
+  Plug,
 } from "lucide-react";
 import { platform } from "@/core/platform";
 import { Modal } from "../primitives/Modal";
@@ -18,6 +19,7 @@ import { KeyboardShortcutsSettings } from "@/components/settings/KeyboardShortcu
 import { WhisperSettings } from "@/components/settings/WhisperSettings";
 import { CacheSettings } from "@/components/settings/CacheSettings";
 import { AboutTab } from "@/components/settings/AboutTab";
+import { IntegrationsTab } from "@/components/settings/IntegrationsTab";
 
 // Re-export shared primitives for backward compatibility
 export { SettingRow } from "@/components/settings/SettingRow";
@@ -34,6 +36,7 @@ export type SettingsTabId =
   | "shortcuts"
   | "captions"
   | "cache"
+  | "integrations"
   | "about";
 
 interface TabDefinition {
@@ -73,6 +76,12 @@ const TABS: TabDefinition[] = [
     labelKey: "settings.tabs.storage",
     defaultLabel: "Storage & Cache",
     icon: HardDrive,
+  },
+  {
+    id: "integrations",
+    labelKey: "settings.tabs.integrations",
+    defaultLabel: "Integrations",
+    icon: Plug,
   },
   {
     id: "about",
@@ -166,6 +175,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <WhisperSettings />
             ))}
           {activeTab === "cache" && <CacheSettings />}
+          {activeTab === "integrations" && <IntegrationsTab />}
           {activeTab === "about" && <AboutTab />}
         </main>
       </div>

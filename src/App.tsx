@@ -51,6 +51,7 @@ import {
   type BenchRunConfig,
 } from "@/lib/platform/tauri";
 import { invoke } from "@tauri-apps/api/core";
+import { McpBridgeHost } from "@/features/mcp-bridge/McpBridgeHost";
 import { useI18n } from "@/i18n";
 
 // const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
@@ -1248,6 +1249,7 @@ const App = () => {
         </TooltipProvider>
       )}
       <SettingsModal isOpen={showSettingsModal} onClose={toggleSettingsModal} />
+      <McpBridgeHost />
       <TransferPanel
         isOpen={showTransferModal}
         onClose={() => setTransferModal(false)}

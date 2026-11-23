@@ -479,6 +479,9 @@ pub fn run() {
             // Initialize MediaPipe AI tracking state
             app.manage(commands::ai::init_ai_state());
 
+            // MCP server state (server itself starts only when enabled in Settings)
+            app.manage(commands::mcp::McpState::new());
+
             // Initialize the device-only GPU context and 3D LUT cache in a
             // background task so the Tauri event loop (and webview IPC channel)
             // are never blocked. Do not create a wgpu surface here: a surface
@@ -876,6 +879,14 @@ pub fn run() {
             crate::commands::ai_agent::secrets::ai_agent_set_api_key,
             crate::commands::ai_agent::secrets::ai_agent_has_api_key,
             crate::commands::ai_agent::secrets::ai_agent_delete_api_key,
+            // ── MCP server for external coding agents ──────────────────────
+            crate::commands::mcp::mcp_start,
+            crate::commands::mcp::mcp_stop,
+            crate::commands::mcp::mcp_status,
+            crate::commands::mcp::mcp_get_token,
+            crate::commands::mcp::mcp_regenerate_token,
+            crate::commands::mcp::mcp_register_tools,
+            crate::commands::mcp::mcp_resolve_call,
             #[cfg(feature = "perf-driver")]
             run_perf_scenario,
             // ── Debug / chain-test commands ──────────────────────────────────

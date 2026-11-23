@@ -9,7 +9,8 @@
  */
 import { defineTool, zod as z, type ToolDefinition } from "@salvador/tools";
 import { getPlaybackClock } from "@/core/playback";
-import { EditingActions } from "@/core/interactions";
+import { EditingActions, getPreviewInteractionCoordinator } from "@/core/interactions";
+import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useHistoryStore } from "@/store/historyStore";
@@ -491,6 +492,78 @@ const removeSilences = defineTool({
   },
 });
 
+// ── history & transport ──────────────────────────────────────────────────
+
+const undoTool = defineTool({
+  name: "undo",
+  description: "Undo the most recent edit in the editor's history (the same as Cmd/Ctrl+Z). Returns what was undone.",
+  kind: "edit",
+  input: z.object({}),
+  async execute() {
+    const h = useHistoryStore.getState();
+    const label = h.state.undoLabel;
+    if (!h.state.canUndo) throw new Error("nothing to undo");
+    h.undo();
+    return { summary: `undid ${label ?? "last edit"}`, data: { undone: label } };
+  },
+});
+
+const redoTool = defineTool({
+  name: "redo",
+  description: "Redo the most recently undone edit (the same as Cmd/Ctrl+Shift+Z).",
+  kind: "edit",
+  input: z.object({}),
+  async execute() {
+    const h = useHistoryStore.getState();
+    const label = h.state.redoLabel;
+    if (!h.state.canRedo) throw new Error("nothing to redo");
+    h.redo();
+    return { summary: `redid ${label ?? "last undone edit"}`, data: { redone: label } };
+  },
+});
+
+/** Transport goes through the active session's authority, like the UI transport bar (Invariant 1). */
+function transport() {
+  const authority = getActiveSessionOrNull()?.transportAuthority;
+  if (!authority) throw new Error("no active editing session");
+  getPreviewInteractionCoordinator().notifyTransportBoundary();
+  return authority;
+}
+
+const seekTool = defineTool({
+  name: "seek",
+  description: "Move the playhead to a timeline time (seconds). Clamped to the timeline duration.",
+  kind: "edit",
+  input: z.object({ time: z.number().nonnegative() }),
+  async execute({ time }) {
+    const t = r3(Math.min(time, Math.max(0, tl().getTimelineEndTime())));
+    transport().seek(t, { mode: "seek" });
+    return { summary: `playhead moved to ${t}s`, data: { time: t } };
+  },
+});
+
+const playTool = defineTool({
+  name: "play",
+  description: "Start playback from the playhead.",
+  kind: "edit",
+  input: z.object({}),
+  async execute() {
+    transport().play();
+    return { summary: "playing", data: { playhead: playhead() } };
+  },
+});
+
+const pauseTool = defineTool({
+  name: "pause",
+  description: "Pause playback. Returns the playhead position.",
+  kind: "edit",
+  input: z.object({}),
+  async execute() {
+    transport().pause();
+    return { summary: `paused at ${playhead()}s`, data: { playhead: playhead() } };
+  },
+});
+
 // ── output ───────────────────────────────────────────────────────────────
 
 const startExport = defineTool({
@@ -525,8 +598,16 @@ export const EDITOR_TOOLS: ToolDefinition[] = [
   addTextClip,
   addCaptions,
   removeSilences,
+  undoTool,
+  redoTool,
+  seekTool,
+  playTool,
+  pauseTool,
   startExport,
 ] as unknown as ToolDefinition[];
+
+/** Tools that can legitimately run for minutes (MCP uses a longer timeout for them). */
+export const LONG_RUNNING_TOOLS: ReadonlySet<string> = new Set(["add_captions", "start_export"]);
 
 /** Default permissions: destructive / slow / external actions ask first. */
 export const DEFAULT_PERMISSIONS = {

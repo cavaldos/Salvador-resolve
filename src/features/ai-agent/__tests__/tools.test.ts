@@ -196,3 +196,26 @@ describe("start_export", () => {
     expect(tool.input.safeParse({ preset: "bogus" }).success).toBe(false);
   });
 });
+
+describe("history & transport tools", () => {
+  it("undo / redo revert and re-apply the last edit and report its label", async () => {
+    await run("delete_clip", { clipId: "c2" });
+    const u = await run("undo");
+    expect(useTimelineStore.getState().clips.find((c) => c.id === "c2")).toBeTruthy();
+    expect(u.summary).toMatch(/^undid /);
+    await run("redo");
+    expect(useTimelineStore.getState().clips.find((c) => c.id === "c2")).toBeUndefined();
+  });
+
+  it("undo / redo fail clearly on an empty history", async () => {
+    await expect(run("undo")).rejects.toThrow("nothing to undo");
+    await expect(run("redo")).rejects.toThrow("nothing to redo");
+  });
+
+  it("seek / play / pause refuse to run without an editing session", async () => {
+    await expect(run("seek", { time: 2 })).rejects.toThrow("no active editing session");
+    await expect(run("play")).rejects.toThrow("no active editing session");
+    await expect(run("pause")).rejects.toThrow("no active editing session");
+    expect(findEditorTool("seek")!.input.safeParse({ time: -1 }).success).toBe(false);
+  });
+});

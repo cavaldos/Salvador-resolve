@@ -18,6 +18,8 @@ pub mod thumbnail {
     pub use super::filmstrip::*;
 }
 pub mod lut;
+/// MCP server for external coding agents (off by default). See docs/agent/MCP.md.
+pub mod mcp;
 pub mod media;
 pub mod multi_tier_telemetry;
 pub mod native_audio;
