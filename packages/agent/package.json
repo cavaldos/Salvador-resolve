@@ -1,0 +1,20 @@
+{
+  "name": "@salvador/agent",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@salvador/core": "*",
+    "@salvador/tools": "*",
+    "zod": "^3.23.8",
+    "zod-to-json-schema": "^3.25.2"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.7"
+  }
+}

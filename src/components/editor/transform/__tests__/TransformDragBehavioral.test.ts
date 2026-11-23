@@ -1,0 +1,368 @@
+/**
+ * TransformOverlay Drag Behavioral Tests
+ *
+ * Verifies the live drag transformation calculations and lifecycle:
+ * - Live handle calculation: Move, Scale (Corner/Side), and Rotation
+ * - Proportional text resizing
+ * - Snapping and boundary constraints
+ * - Transform lifecycle state management
+ */
+
+import { describe, it, expect, beforeEach } from "vitest";
+import { resetTransformController, getTransformController } from "@/core/interactions";
+import {
+  buildTransformStartClip,
+  calculateTextResizeFontSize,
+  shouldScaleTextFontForHandle,
+  calculateScaledTextTransform,
+  assembleTextCommitTransform,
+} from "@/lib/transform/transformUtils";
+import { calculateTransform, getDefaultConstraints } from "../calculator";
+import { createTextClip } from "@/lib/text/textClip";
+import type { Clip, TransformState } from "@/types";
+
+// ─── Fixtures ────────────────────────────────────────────────────────────────
+
+const baseVideoClip: Clip = {
+  id: "clip-video",
+  kind: "video",
+  trackId: "track-1",
+  mediaId: "asset-1",
+  startTime: 0,
+  duration: 10,
+  trimIn: 0,
+  trimOut: 10,
+  x: 100,
+  y: 100,
+  width: 500,
+  height: 281,
+  opacity: 1,
+  rotation: 0,
+  aspectRatioLocked: true,
+  sourceAspectRatio: 16 / 9,
+};
+
+const makeActiveTransform = (handle: TransformState["handle"] = "move"): TransformState => ({
+  clipId: "clip-video",
+  handle,
+  startTransform: {
+    x: 100,
+    y: 100,
+    width: 500,
+    height: 281,
+    rotation: 0,
+  },
+  startMousePos: { x: 350, y: 240 },
+  aspectRatioLocked: true,
+  sourceAspectRatio: 16 / 9,
+});
+
+// ─── Transform Controller Lifecycle ──────────────────────────────────────────
+
+describe("Transform Controller lifecycle", () => {
+  beforeEach(() => {
+    resetTransformController();
+  });
+
+  it("tracks active transform state during drag", () => {
+    const controller = getTransformController();
+    expect(controller.getActiveTransform()).toBeNull();
+
+    controller.startTransform(makeActiveTransform("se"));
+    expect(controller.getActiveTransform()).not.toBeNull();
+    expect(controller.getActiveTransform()?.handle).toBe("se");
+
+    controller.endTransform();
+    expect(controller.getActiveTransform()).toBeNull();
+  });
+
+  it("updates transform state imperatively during drag", () => {
+    const controller = getTransformController();
+    controller.startTransform(makeActiveTransform("move"));
+
+    const updatedState: TransformState = {
+      ...makeActiveTransform("move"),
+      startTransform: {
+        x: 150,
+        y: 150,
+        width: 500,
+        height: 281,
+        rotation: 0,
+      },
+    };
+
+    controller.updateTransform(updatedState);
+    expect(controller.getActiveTransform()?.startTransform.x).toBe(150);
+    controller.endTransform();
+  });
+});
+
+// ─── Live Move & Resize Math ──────────────────────────────────────────────────
+
+describe("Live move & resize transform calculations", () => {
+  const constraints = getDefaultConstraints(1920, 1080, false);
+
+  it("calculates live position offset on move drag", () => {
+    const startClip = buildTransformStartClip(baseVideoClip, makeActiveTransform("move"));
+    const result = calculateTransform(
+      startClip,
+      "move",
+      { x: 350, y: 240 },
+      { x: 420, y: 310 },
+      constraints,
+    );
+    expect(result.x).toBeCloseTo(170); // 100 + (420-350)
+    expect(result.y).toBeCloseTo(170); // 100 + (310-240)
+  });
+
+  it("constrains movement within canvas limits", () => {
+    const startClip = buildTransformStartClip(baseVideoClip, makeActiveTransform("move"));
+    const result = calculateTransform(
+      startClip,
+      "move",
+      { x: 350, y: 240 },
+      { x: 5000, y: 5000 },
+      constraints,
+    );
+    expect(result.x!).toBeLessThanOrEqual(constraints.canvasWidth - startClip.width * 0.5);
+    expect(result.y!).toBeLessThanOrEqual(constraints.canvasHeight - startClip.height * 0.5);
+  });
+
+  it("scales dimensions proportionally on corner drag (aspect locked)", () => {
+    const lockedConstraints = getDefaultConstraints(1920, 1080, true);
+    const startClip = buildTransformStartClip(baseVideoClip, makeActiveTransform("se"));
+    const result = calculateTransform(
+      startClip,
+      "se",
+      { x: 600, y: 381 },
+      { x: 700, y: 437 },
+      lockedConstraints,
+    );
+    expect(result.width).toBeGreaterThan(startClip.width);
+    expect(result.height).toBeGreaterThan(startClip.height);
+  });
+
+  it("scales non-square text clips consistently when dragging vertical vs horizontal dominant corner", () => {
+    const lockedConstraints = getDefaultConstraints(1920, 1080, true);
+    const wideTextClip: Clip = {
+      ...baseVideoClip,
+      width: 400,
+      height: 50,
+      sourceAspectRatio: 8,
+    };
+    // Dragging along Y by +25px on SE corner should scale height by 2 * 25 / 50 = +100% (2x)
+    const resultY = calculateTransform(
+      wideTextClip,
+      "se",
+      { x: 500, y: 150 },
+      { x: 500, y: 175 },
+      lockedConstraints,
+    );
+    expect(resultY.height).toBeCloseTo(100);
+    expect(resultY.width).toBeCloseTo(800);
+
+    // Dragging along X by +200px on SE corner should scale width by 2 * 200 / 400 = +100% (2x)
+    const resultX = calculateTransform(
+      wideTextClip,
+      "se",
+      { x: 500, y: 150 },
+      { x: 700, y: 150 },
+      lockedConstraints,
+    );
+    expect(resultX.width).toBeCloseTo(800);
+    expect(resultX.height).toBeCloseTo(100);
+  });
+});
+
+describe("raster-backed text rotation", () => {
+  it("CLY-TEXT-021: measures rotation from the frozen raster pivot rather than the authored box", () => {
+    const clip = {
+      ...baseVideoClip,
+      x: 400,
+      y: 300,
+      width: 160,
+      height: 80,
+      rotation: 10,
+    };
+    const constraints = getDefaultConstraints(1920, 1080, false);
+    // The visible text is offset within an expanded 840×180 raster whose
+    // compositor pivot is (540, 350), not the authored box centre (480, 340).
+    const pivot = { x: 540, y: 350 };
+    const startAngle = Math.atan2(0, 100);
+
+    const result = calculateTransform(
+      clip,
+      "rotate",
+      { x: 640, y: 350 },
+      { x: 540, y: 450 },
+      constraints,
+      startAngle,
+      pivot,
+    );
+
+    expect(result.rotation).toBe(100);
+  });
+});
+
+// ─── Text Resize Math ────────────────────────────────────────────────────────
+
+describe("Live text resizing calculations", () => {
+  it("scales font size proportionally on width resize", () => {
+    const startTransform = { width: 200, height: 100 };
+    const newFontSize = calculateTextResizeFontSize(
+      40,
+      "e",
+      startTransform,
+      { width: 300, height: 100 },
+    );
+    expect(newFontSize).toBe(60); // 40 * (300/200)
+  });
+
+  it("reduces font size when scaled down", () => {
+    const startTransform = { width: 400, height: 200 };
+    const newFontSize = calculateTextResizeFontSize(
+      60,
+      "se",
+      startTransform,
+      { width: 200, height: 100 },
+    );
+    expect(newFontSize).toBe(30); // 60 * (200/400)
+  });
+
+  it("maintains font size on move or rotate", () => {
+    expect(shouldScaleTextFontForHandle("move")).toBe(false);
+    expect(shouldScaleTextFontForHandle("rotate")).toBe(false);
+  });
+
+  it("preserves center position when scaling text horizontally", () => {
+    const start = { x: 100, y: 200, width: 200, height: 100 };
+    const result = calculateScaledTextTransform("e", start, { x: 100, width: 300 }, 1.5);
+    expect(result.height).toBeCloseTo(150);
+    expect(result.y).toBeCloseTo(175);
+  });
+
+  it("synchronizes width and height with authoredSize on text resize commit (1:1 scale ratio, zero drift)", () => {
+    const textClip = createTextClip({
+      trackId: "track-1",
+      startTime: 0,
+      duration: 5,
+      text: "Scaling Text",
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+    });
+    textClip.fontSize = 40;
+    textClip.x = 100;
+    textClip.y = 100;
+    textClip.width = 250;
+    textClip.height = 60;
+    textClip.baseWidth = 250;
+    textClip.baseHeight = 60;
+
+    const oldTransform: Record<string, any> = {
+      x: 100,
+      y: 100,
+      width: 250,
+      height: 60,
+      fontSize: 40,
+    };
+
+    // User scaled corner so new font size is 80 (2x)
+    const finalGeometry = {
+      x: 50,
+      y: 70,
+      width: 500,
+      height: 120,
+    };
+    const newTransform: Record<string, any> = {
+      ...finalGeometry,
+      fontSize: 80,
+    };
+
+    assembleTextCommitTransform(
+      textClip,
+      1920,
+      finalGeometry,
+      oldTransform,
+      newTransform,
+    );
+
+    // Both base dimensions and geometry dimensions must match the newly authored size
+    expect(newTransform.baseWidth).toBe(newTransform.width);
+    expect(newTransform.baseHeight).toBe(newTransform.height);
+    expect(newTransform.baseWidth).toBeGreaterThan(250);
+    expect(newTransform.baseHeight).toBeGreaterThan(60);
+
+    // Old transform carries previous base dimensions for undo
+    expect(oldTransform.baseWidth).toBe(250);
+    expect(oldTransform.baseHeight).toBe(60);
+
+    // Center point of finalGeometry was (50 + 500/2 = 300, 70 + 120/2 = 130)
+    const committedCenterX = newTransform.x + newTransform.width / 2;
+    const committedCenterY = newTransform.y + newTransform.height / 2;
+    expect(committedCenterX).toBeCloseTo(300, 0);
+    expect(committedCenterY).toBeCloseTo(130, 0);
+  });
+});
+
+// ─── Strong Rotation & Aspect Ratio Snapping ──────────────────────────────────
+
+describe("Strong rotation & aspect ratio snapping pressure", () => {
+  const clip = {
+    ...baseVideoClip,
+    x: 400,
+    y: 300,
+    width: 200,
+    height: 100,
+    rotation: 0,
+  };
+  const constraints = getDefaultConstraints(1920, 1080, false);
+  const pivot = { x: 500, y: 350 };
+
+  it("snaps strongly to 0° when within cardinal threshold (±9°)", () => {
+    // 7° rotation from upright
+    const rad7 = (7 * Math.PI) / 180;
+    const currentMouse = {
+      x: pivot.x + 100 * Math.sin(rad7),
+      y: pivot.y - 100 * Math.cos(rad7),
+    };
+    const startAngle = -Math.PI / 2; // directly above center (0° rotation)
+    const result = calculateTransform(clip, "rotate", { x: pivot.x, y: pivot.y - 100 }, currentMouse, constraints, startAngle, pivot);
+    expect(result.rotation).toBe(0);
+  });
+
+  it("snaps strongly to 90° when within cardinal threshold (±9°)", () => {
+    // 86° rotation (within 9° of 90°)
+    const rad86 = (86 * Math.PI) / 180;
+    const currentMouse = {
+      x: pivot.x + 100 * Math.sin(rad86),
+      y: pivot.y - 100 * Math.cos(rad86),
+    };
+    const startAngle = -Math.PI / 2;
+    const result = calculateTransform(clip, "rotate", { x: pivot.x, y: pivot.y - 100 }, currentMouse, constraints, startAngle, pivot);
+    expect(result.rotation).toBe(90);
+  });
+
+  it("snaps to 45° diagonal when within diagonal threshold (±6°)", () => {
+    // 48° rotation (within 6° of 45°)
+    const rad48 = (48 * Math.PI) / 180;
+    const currentMouse = {
+      x: pivot.x + 100 * Math.sin(rad48),
+      y: pivot.y - 100 * Math.cos(rad48),
+    };
+    const startAngle = -Math.PI / 2;
+    const result = calculateTransform(clip, "rotate", { x: pivot.x, y: pivot.y - 100 }, currentMouse, constraints, startAngle, pivot);
+    expect(result.rotation).toBe(45);
+  });
+
+  it("does not snap when beyond the snap threshold (smooth drag preserved)", () => {
+    // 25° rotation (far from 0° and 45°)
+    const rad25 = (25 * Math.PI) / 180;
+    const currentMouse = {
+      x: pivot.x + 100 * Math.sin(rad25),
+      y: pivot.y - 100 * Math.cos(rad25),
+    };
+    const startAngle = -Math.PI / 2;
+    const result = calculateTransform(clip, "rotate", { x: pivot.x, y: pivot.y - 100 }, currentMouse, constraints, startAngle, pivot);
+    expect(Math.round(result.rotation!)).toBe(25);
+  });
+});

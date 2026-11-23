@@ -1,0 +1,1134 @@
+//! Session-scoped performance telemetry
+//!
+//! [`SessionTelemetryCollector`] is the **session-level** counterpart to the
+//! rolling [`FrameTelemetryRing`]. The ring discards samples as it wraps;
+//! the session collector accumulates totals and peak values for the entire
+//! app session so the frontend can surface lifetime statistics.
+//!
+//! # Relationship to other telemetry types
+//!
+//! ```text
+//! PerformanceManager::record(FrameTelemetry)
+//!         │
+//!         ├── FrameTelemetryRing   ← rolling 300-sample window, drives PolicyState
+//!         │
+//!         └── SessionTelemetryCollector  ← lifetime totals + peaks → IPC snapshot
+//! ```
+//!
+//! # Design invariants
+//!
+//! - **Never cleared by `PerformanceManager::reset()`** — a project close / session
+//!   reset clears the ring and policy, but session lifetime stats survive.
+//!   Call [`SessionTelemetryCollector::reset_session`] explicitly on a fresh
+//!   recording session if needed.
+//!
+//! - **Cheaply cloneable** — `Arc<Mutex<SessionState>>` internally; clone freely
+//!   across threads.
+//!
+//! - **All Phase 5 fields populated** — `queue_wait_us`, `deadline_miss`,
+//!   `dropped`, `recorded_at`, `ipc_wait_us`, `gpu_render_us` are all tracked.
+
+use crate::native_core::performance::FrameTransferPath;
+use crate::native_core::NativeDemandOutcome;
+use crate::wgpu_compositor::frame_correlation::WorkloadMode;
+use crate::wgpu_compositor::frame_telemetry::FrameTelemetry;
+use crate::wgpu_compositor::render_path::FrameSource;
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::Instant;
+
+/// Debug-only metadata identifying a controlled scrub experiment. The context
+/// is optional so production sessions keep the existing payload shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScrubExperimentContext {
+    pub experiment_id: String,
+    pub run_id: String,
+    pub cache_cleared: bool,
+    pub background_decode_disabled: bool,
+}
+
+// ---------------------------------------------------------------------------
+// FramesBySource — breakdown of frames per render path
+// ---------------------------------------------------------------------------
+
+/// Number of frames rendered via each source path in this session.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FramesBySource {
+    /// Frames imported via DXGI zero-copy (NV12 or P010).
+    pub dxgi_nv12: u64,
+    /// Frames imported via Metal zero-copy on macOS.
+    #[serde(default)]
+    pub metal_nv12: u64,
+    /// Frames imported via Metal zero-copy using P010 planes.
+    #[serde(default)]
+    pub metal_p010: u64,
+    /// Frames uploaded via CPU path as NV12.
+    pub cpu_nv12: u64,
+    /// Frames uploaded via CPU path as P010.
+    #[serde(default)]
+    pub cpu_p010: u64,
+    /// Frames uploaded via CPU path as RGBA8.
+    pub cpu_rgba: u64,
+    /// Frames with an unrecognised source (should be zero in normal operation).
+    pub unknown: u64,
+}
+
+// ---------------------------------------------------------------------------
+// WorkloadSnapshot and WorkloadBucket — per-workload statistics
+// ---------------------------------------------------------------------------
+
+/// Deadline policy (in microseconds) per workload mode.
+///
+/// These are used to classify a frame as `deadline_miss` when the
+/// `FrameTelemetry::command_entry_to_present_enqueue_us` exceeds the threshold.
+/// Playback uses `present_by` from `FrameDeadline` instead.
+const DEADLINE_US_PAUSED_INTERACTION: u64 = 200_000;
+const DEADLINE_US_SEEK_COLD: u64 = 500_000;
+const DEADLINE_US_SEEK_WARM: u64 = 100_000;
+const DEADLINE_US_SCRUB: u64 = 50_000;
+const DEADLINE_US_FRAME_STEP: u64 = 100_000;
+
+/// A snapshot of per-workload performance statistics for the current session.
+///
+/// Returned as part of [`SessionSnapshot`] and serialized to JSON for the frontend.
+/// All latency fields are in **microseconds**.
+///
+/// # Request vs frame accounting
+///
+/// These two sets of counters are intentionally separate:
+///
+/// - Request counters track IPC calls from the frontend.
+/// - Frame counters track GPU frames produced and their disposition.
+///
+/// A user may generate 100 scrub requests while Salvador intentionally produces
+/// only 10 preview frames (`requests_coalesced = 90`).  That is not 90 dropped
+/// frames.  `dropped_frames` counts frames that were produced but discarded.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkloadSnapshot {
+    // ── Request accounting ────────────────────────────────────────────────────
+    /// Total IPC requests received for this workload.
+    pub requests_received: u64,
+    /// Requests for which a frame was successfully presented.
+    pub requests_completed: u64,
+    /// Explicit alias with the presentation denominator named directly.
+    pub requests_presented: u64,
+    /// Requests merged into an existing in-flight frame (intentional).
+    pub requests_coalesced: u64,
+    /// Requests replaced by a later request before decoding began.
+    pub requests_superseded: u64,
+    /// Requests cancelled (e.g. clip closed, session reset).
+    pub requests_cancelled: u64,
+    /// Explicit demands dropped after entering presentation processing.
+    pub requests_dropped_before_present: u64,
+    /// Explicit demands that failed in the native pipeline.
+    pub requests_failed: u64,
+
+    // ── Frame accounting ──────────────────────────────────────────────────────
+    /// Total frames produced for this workload (pushed to telemetry).
+    pub expected_frames: u64,
+    /// Frames successfully presented.
+    pub completed_frames: u64,
+    /// Frames produced but discarded under scheduler backpressure.
+    pub dropped_frames: u64,
+    /// Frames whose production latency exceeded the workload deadline policy.
+    pub missed_deadlines: u64,
+
+    // ── Latency percentiles (µs) ──────────────────────────────────────────────
+    /// p50 of `command_entry_to_present_enqueue_us` for this workload.
+    pub p50_us: Option<u64>,
+    /// p95 of `command_entry_to_present_enqueue_us` for this workload.
+    pub p95_us: Option<u64>,
+    /// p99 of `command_entry_to_present_enqueue_us` for this workload.
+    pub p99_us: Option<u64>,
+    /// p50 of `frame_processing_us` for this workload.
+    pub frame_processing_p50_us: Option<u64>,
+}
+
+/// Private per-workload accumulator using a fixed-size reservoir sample.
+///
+/// # Memory bound
+///
+/// Capacity is capped at `RESERVOIR_CAPACITY` samples (1000).  At 8 bytes per
+/// sample, the worst case is 8 KB per workload × 6 workloads = 48 KB total.
+///
+/// # Reservoir sampling (Algorithm R)
+///
+/// When the reservoir is full, each new sample replaces a randomly chosen
+/// existing sample.  This gives each sample an equal probability of appearing
+/// in the reservoir, regardless of arrival order.  Percentiles computed over
+/// the reservoir are unbiased estimators of the true percentiles.
+struct WorkloadBucket {
+    /// Maximum reservoir size.
+    reservoir: Vec<u64>,
+    /// Frame processing time reservoir (parallel to `reservoir`).
+    frame_proc_reservoir: Vec<u64>,
+    /// Total samples seen (not capped — used for reservoir probability).
+    total_seen: u64,
+    /// Simple LCG state for fast pseudo-random index selection.
+    rng_state: u64,
+
+    // Request and frame counters
+    requests_received: u64,
+    requests_completed: u64,
+    requests_presented: u64,
+    requests_coalesced: u64,
+    requests_superseded: u64,
+    requests_cancelled: u64,
+    requests_dropped_before_present: u64,
+    requests_failed: u64,
+    expected_frames: u64,
+    completed_frames: u64,
+    dropped_frames: u64,
+    missed_deadlines: u64,
+}
+
+/// Maximum samples retained per workload bucket (Algorithm R reservoir).
+const RESERVOIR_CAPACITY: usize = 1000;
+
+impl WorkloadBucket {
+    fn new() -> Self {
+        Self {
+            reservoir: Vec::with_capacity(RESERVOIR_CAPACITY),
+            frame_proc_reservoir: Vec::with_capacity(RESERVOIR_CAPACITY),
+            total_seen: 0,
+            // Non-zero seed for the LCG.
+            rng_state: 0xDEAD_BEEF_CAFE_1234,
+            requests_received: 0,
+            requests_completed: 0,
+            requests_presented: 0,
+            requests_coalesced: 0,
+            requests_superseded: 0,
+            requests_cancelled: 0,
+            requests_dropped_before_present: 0,
+            requests_failed: 0,
+            expected_frames: 0,
+            completed_frames: 0,
+            dropped_frames: 0,
+            missed_deadlines: 0,
+        }
+    }
+
+    /// Fast LCG pseudo-random number generator (Knuth MMIX constants).
+    fn next_rand(&mut self) -> u64 {
+        self.rng_state = self
+            .rng_state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        self.rng_state
+    }
+
+    /// Record one frame sample into the reservoir (Algorithm R).
+    ///
+    /// `processing_us` is `command_entry_to_present_enqueue_us`; it is the
+    /// primary latency metric for workload percentiles.
+    /// `frame_proc_us` is `frame_processing_us` (may be `None`).
+    fn record_frame(
+        &mut self,
+        processing_us: u64,
+        frame_proc_us: Option<u64>,
+        dropped: bool,
+        deadline_miss: bool,
+        deadline_us: Option<u64>,
+    ) {
+        self.expected_frames += 1;
+        if dropped {
+            self.dropped_frames += 1;
+        } else {
+            self.completed_frames += 1;
+        }
+
+        // Deadline policy: use the workload-specific threshold when no
+        // `deadline_miss` flag is provided from the frame telemetry.
+        let missed = deadline_miss || deadline_us.map(|d| processing_us > d).unwrap_or(false);
+        if missed {
+            self.missed_deadlines += 1;
+        }
+
+        // Reservoir sampling (Algorithm R).
+        let n = self.total_seen as usize;
+        self.total_seen += 1;
+
+        if n < RESERVOIR_CAPACITY {
+            self.reservoir.push(processing_us);
+            self.frame_proc_reservoir
+                .push(frame_proc_us.unwrap_or(processing_us));
+        } else {
+            let j = (self.next_rand() as usize) % (n + 1);
+            if j < RESERVOIR_CAPACITY {
+                self.reservoir[j] = processing_us;
+                self.frame_proc_reservoir[j] = frame_proc_us.unwrap_or(processing_us);
+            }
+        }
+    }
+
+    fn record_request(&mut self) {
+        self.requests_received += 1;
+    }
+
+    fn record_request_terminal(&mut self, outcome: NativeDemandOutcome) {
+        match outcome {
+            NativeDemandOutcome::Presented => {
+                self.requests_completed += 1;
+                self.requests_presented += 1;
+            }
+            NativeDemandOutcome::Coalesced => self.requests_coalesced += 1,
+            NativeDemandOutcome::Superseded => self.requests_superseded += 1,
+            NativeDemandOutcome::Cancelled => self.requests_cancelled += 1,
+            NativeDemandOutcome::DroppedBeforePresent => self.requests_dropped_before_present += 1,
+            NativeDemandOutcome::Failed => self.requests_failed += 1,
+        }
+    }
+
+    /// Compute a percentile from the reservoir.  Returns `None` if empty.
+    fn percentile(values: &mut [u64], pct: f64) -> Option<u64> {
+        if values.is_empty() {
+            return None;
+        }
+        values.sort_unstable();
+        let idx = ((pct / 100.0) * (values.len() as f64 - 1.0)).round() as usize;
+        Some(values[idx.min(values.len() - 1)])
+    }
+
+    /// Produce a serializable snapshot.
+    fn snapshot(&self) -> WorkloadSnapshot {
+        // Clone to sort (sort requires &mut).
+        let mut res = self.reservoir.clone();
+        let mut fp_res = self.frame_proc_reservoir.clone();
+
+        WorkloadSnapshot {
+            requests_received: self.requests_received,
+            requests_completed: self.requests_completed,
+            requests_presented: self.requests_presented,
+            requests_coalesced: self.requests_coalesced,
+            requests_superseded: self.requests_superseded,
+            requests_cancelled: self.requests_cancelled,
+            requests_dropped_before_present: self.requests_dropped_before_present,
+            requests_failed: self.requests_failed,
+            expected_frames: self.expected_frames,
+            completed_frames: self.completed_frames,
+            dropped_frames: self.dropped_frames,
+            missed_deadlines: self.missed_deadlines,
+            p50_us: Self::percentile(&mut res, 50.0),
+            p95_us: {
+                let mut r2 = self.reservoir.clone();
+                Self::percentile(&mut r2, 95.0)
+            },
+            p99_us: {
+                let mut r3 = self.reservoir.clone();
+                Self::percentile(&mut r3, 99.0)
+            },
+            frame_processing_p50_us: Self::percentile(&mut fp_res, 50.0),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SessionSnapshot — the IPC-visible summary
+// ---------------------------------------------------------------------------
+
+/// A point-in-time summary of the entire session's rendering performance.
+///
+/// Returned by `get_session_telemetry` and serialized to JSON for the frontend.
+/// All latency fields are in **microseconds** to match [`FrameTelemetry`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSnapshot {
+    // ── Identity ─────────────────────────────────────────────────────────────
+    /// Seconds elapsed since the session started (or last `reset_session`).
+    pub session_duration_secs: f64,
+
+    // ── Frame counts ─────────────────────────────────────────────────────────
+    /// Total frames pushed through `PerformanceManager::record`.
+    pub frames_produced: u64,
+    /// Frames with `dropped = true`.
+    pub frames_dropped: u64,
+    /// Frames with `deadline_miss = true`.
+    pub deadline_misses: u64,
+    /// `frames_dropped / frames_produced * 100.0` — `None` if no frames yet.
+    pub drop_rate_pct: Option<f64>,
+    /// `deadline_misses / frames_produced * 100.0` — `None` if no frames yet.
+    pub miss_rate_pct: Option<f64>,
+
+    // ── Decode latency (CPU, µs) ─────────────────────────────────────────────
+    pub avg_decode_us: Option<u64>,
+    pub peak_decode_us: Option<u64>,
+
+    // ── Scheduler queue-wait (µs) — Phase 5 ─────────────────────────────────
+    /// Average queue-wait for frames that had a `queue_wait_us` measurement.
+    pub avg_queue_wait_us: Option<u64>,
+    pub peak_queue_wait_us: Option<u64>,
+
+    // ── IPC round-trip (µs) — Phase 5 ────────────────────────────────────────
+    pub avg_ipc_wait_us: Option<u64>,
+    pub peak_ipc_wait_us: Option<u64>,
+
+    /// Decode-actor wait is reported independently from decode time so queue
+    /// ownership contention cannot be misclassified as codec throughput.
+    pub avg_actor_wait_us: Option<u64>,
+    pub peak_actor_wait_us: Option<u64>,
+
+    // ── GPU render (µs) — Phase 6 will populate ──────────────────────────────
+    pub avg_gpu_render_us: Option<u64>,
+    pub peak_gpu_render_us: Option<u64>,
+
+    // ── Source-path breakdown ─────────────────────────────────────────────────
+    pub frames_by_source: FramesBySource,
+
+    // ── Policy events (how many times the manager intervened) ────────────────
+    /// Number of times `PerformanceManager::record` triggered a policy change
+    /// that set `background_paused = true`.
+    pub policy_background_pauses: u64,
+    /// Number of times a policy change set `interactive_throttled = true`.
+    pub policy_interactive_throttles: u64,
+
+    // ── Per-workload breakdown (Phase 3.1) ────────────────────────────────────
+    /// Per-workload statistics.  Keyed by workload mode camelCase string.
+    /// Absent when no correlated frames have been recorded.
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
+    pub workload_snapshots: HashMap<String, WorkloadSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub experiment_context: Option<ScrubExperimentContext>,
+}
+
+// ---------------------------------------------------------------------------
+// SessionState — mutable inner state (held behind a Mutex)
+// ---------------------------------------------------------------------------
+
+struct SessionState {
+    started_at: Instant,
+
+    frames_produced: u64,
+    frames_dropped: u64,
+    deadline_misses: u64,
+
+    // Decode
+    total_decode_us: u64,
+    peak_decode_us: u64,
+
+    // Queue wait (Phase 5)
+    total_queue_wait_us: u64,
+    queue_wait_samples: u64,
+    peak_queue_wait_us: u64,
+
+    // IPC wait (Phase 5)
+    total_ipc_wait_us: u64,
+    ipc_wait_samples: u64,
+    peak_ipc_wait_us: u64,
+
+    total_actor_wait_us: u64,
+    actor_wait_samples: u64,
+    peak_actor_wait_us: u64,
+
+    // GPU render (Phase 6)
+    total_gpu_render_us: u64,
+    gpu_render_samples: u64,
+    peak_gpu_render_us: u64,
+
+    // Source breakdown
+    dxgi_nv12_frames: u64,
+    metal_nv12_frames: u64,
+    metal_p010_frames: u64,
+    cpu_nv12_frames: u64,
+    cpu_p010_frames: u64,
+    cpu_rgba_frames: u64,
+    unknown_frames: u64,
+
+    // Policy event counters
+    policy_background_pauses: u64,
+    policy_interactive_throttles: u64,
+
+    // Per-workload accumulators (Phase 3.1)
+    workload_buckets: HashMap<WorkloadMode, WorkloadBucket>,
+    /// Explicit demand IDs accepted by the native command boundary. These
+    /// sets make frontend timeout recovery idempotent with a late native
+    /// completion for the same operation.
+    received_request_ids: HashSet<String>,
+    terminal_request_ids: HashSet<String>,
+    experiment_context: Option<ScrubExperimentContext>,
+}
+
+impl Default for SessionState {
+    fn default() -> Self {
+        Self {
+            started_at: Instant::now(),
+            frames_produced: 0,
+            frames_dropped: 0,
+            deadline_misses: 0,
+            total_decode_us: 0,
+            peak_decode_us: 0,
+            total_queue_wait_us: 0,
+            queue_wait_samples: 0,
+            peak_queue_wait_us: 0,
+            total_ipc_wait_us: 0,
+            ipc_wait_samples: 0,
+            peak_ipc_wait_us: 0,
+            total_actor_wait_us: 0,
+            actor_wait_samples: 0,
+            peak_actor_wait_us: 0,
+            total_gpu_render_us: 0,
+            gpu_render_samples: 0,
+            peak_gpu_render_us: 0,
+            dxgi_nv12_frames: 0,
+            metal_nv12_frames: 0,
+            metal_p010_frames: 0,
+            cpu_nv12_frames: 0,
+            cpu_p010_frames: 0,
+            cpu_rgba_frames: 0,
+            unknown_frames: 0,
+            policy_background_pauses: 0,
+            policy_interactive_throttles: 0,
+            workload_buckets: HashMap::new(),
+            received_request_ids: HashSet::new(),
+            terminal_request_ids: HashSet::new(),
+            experiment_context: None,
+        }
+    }
+}
+
+impl SessionState {
+    fn push(&mut self, t: &FrameTelemetry) {
+        self.frames_produced += 1;
+
+        if t.dropped {
+            self.frames_dropped += 1;
+        }
+        if t.deadline_miss {
+            self.deadline_misses += 1;
+        }
+
+        // Decode
+        self.total_decode_us += t.decode_cpu_us;
+        if t.decode_cpu_us > self.peak_decode_us {
+            self.peak_decode_us = t.decode_cpu_us;
+        }
+
+        // Queue wait — only samples that have been measured (Phase 5)
+        if let Some(qw) = t.queue_wait_us {
+            self.total_queue_wait_us += qw;
+            self.queue_wait_samples += 1;
+            if qw > self.peak_queue_wait_us {
+                self.peak_queue_wait_us = qw;
+            }
+        }
+
+        // IPC wait — only measured samples (Phase 5)
+        if let Some(ipc) = t.ipc_wait_us {
+            self.total_ipc_wait_us += ipc;
+            self.ipc_wait_samples += 1;
+            if ipc > self.peak_ipc_wait_us {
+                self.peak_ipc_wait_us = ipc;
+            }
+        }
+
+        if let Some(actor_wait) = t.actor_wait_us {
+            self.total_actor_wait_us += actor_wait;
+            self.actor_wait_samples += 1;
+            self.peak_actor_wait_us = self.peak_actor_wait_us.max(actor_wait);
+        }
+
+        // GPU render — only measured samples (Phase 6)
+        if let Some(gpu) = t.gpu_render_us {
+            self.total_gpu_render_us += gpu;
+            self.gpu_render_samples += 1;
+            if gpu > self.peak_gpu_render_us {
+                self.peak_gpu_render_us = gpu;
+            }
+        }
+
+        // Source breakdown
+        match &t.source {
+            FrameSource::DxgiNv12 { .. } => self.dxgi_nv12_frames += 1,
+            FrameSource::MetalNv12 { .. } => self.metal_nv12_frames += 1,
+            FrameSource::MetalP010 { .. } => self.metal_p010_frames += 1,
+            FrameSource::CpuNv12 { .. } => self.cpu_nv12_frames += 1,
+            FrameSource::CpuP010 { .. } => self.cpu_p010_frames += 1,
+            FrameSource::CpuRgba { .. } => self.cpu_rgba_frames += 1,
+            FrameSource::GpuRaster
+            | FrameSource::LookaheadQueue
+            | FrameSource::UnchangedSkipped
+            | FrameSource::Mixed
+            | FrameSource::Unknown => self.unknown_frames += 1,
+        }
+
+        // Per-workload bucket routing (Phase 3.1)
+        // Only frames with a correlation ID carry workload metadata.
+        if let Some(corr) = &t.correlation {
+            let workload = corr.workload;
+            let deadline_us = workload_deadline_us(workload);
+            let processing_us = t
+                .command_entry_to_present_enqueue_us
+                .unwrap_or(t.total_cpu_us());
+            let frame_proc_us = t.frame_processing_us;
+            let bucket = self
+                .workload_buckets
+                .entry(workload)
+                .or_insert_with(WorkloadBucket::new);
+            bucket.record_frame(
+                processing_us,
+                frame_proc_us,
+                t.dropped,
+                t.deadline_miss,
+                deadline_us,
+            );
+        }
+    }
+
+    fn snapshot(&self) -> SessionSnapshot {
+        let duration = self.started_at.elapsed().as_secs_f64();
+        let n = self.frames_produced;
+
+        // Build workload snapshot map (camelCase string keys for JSON).
+        let workload_snapshots: HashMap<String, WorkloadSnapshot> = self
+            .workload_buckets
+            .iter()
+            .map(|(mode, bucket)| (workload_key(*mode), bucket.snapshot()))
+            .collect();
+
+        SessionSnapshot {
+            session_duration_secs: duration,
+            frames_produced: n,
+            frames_dropped: self.frames_dropped,
+            deadline_misses: self.deadline_misses,
+
+            drop_rate_pct: if n > 0 {
+                Some(self.frames_dropped as f64 / n as f64 * 100.0)
+            } else {
+                None
+            },
+            miss_rate_pct: if n > 0 {
+                Some(self.deadline_misses as f64 / n as f64 * 100.0)
+            } else {
+                None
+            },
+
+            avg_decode_us: self.total_decode_us.checked_div(n),
+            peak_decode_us: if n > 0 {
+                Some(self.peak_decode_us)
+            } else {
+                None
+            },
+
+            avg_queue_wait_us: self
+                .total_queue_wait_us
+                .checked_div(self.queue_wait_samples),
+            peak_queue_wait_us: if self.queue_wait_samples > 0 {
+                Some(self.peak_queue_wait_us)
+            } else {
+                None
+            },
+
+            avg_ipc_wait_us: self.total_ipc_wait_us.checked_div(self.ipc_wait_samples),
+            peak_ipc_wait_us: if self.ipc_wait_samples > 0 {
+                Some(self.peak_ipc_wait_us)
+            } else {
+                None
+            },
+
+            avg_actor_wait_us: self
+                .total_actor_wait_us
+                .checked_div(self.actor_wait_samples),
+            peak_actor_wait_us: if self.actor_wait_samples > 0 {
+                Some(self.peak_actor_wait_us)
+            } else {
+                None
+            },
+
+            avg_gpu_render_us: self
+                .total_gpu_render_us
+                .checked_div(self.gpu_render_samples),
+            peak_gpu_render_us: if self.gpu_render_samples > 0 {
+                Some(self.peak_gpu_render_us)
+            } else {
+                None
+            },
+
+            frames_by_source: FramesBySource {
+                dxgi_nv12: self.dxgi_nv12_frames,
+                metal_nv12: self.metal_nv12_frames,
+                metal_p010: self.metal_p010_frames,
+                cpu_nv12: self.cpu_nv12_frames,
+                cpu_p010: self.cpu_p010_frames,
+                cpu_rgba: self.cpu_rgba_frames,
+                unknown: self.unknown_frames,
+            },
+
+            policy_background_pauses: self.policy_background_pauses,
+            policy_interactive_throttles: self.policy_interactive_throttles,
+            workload_snapshots,
+            experiment_context: self.experiment_context.clone(),
+        }
+    }
+}
+
+/// Returns the camelCase JSON key for a workload mode.
+fn workload_key(mode: WorkloadMode) -> String {
+    // Keep in sync with WorkloadMode's serde rename_all = "camelCase".
+    match mode {
+        WorkloadMode::Playback => "playback",
+        WorkloadMode::PausedInteraction => "pausedInteraction",
+        WorkloadMode::SeekCold => "seekCold",
+        WorkloadMode::SeekWarm => "seekWarm",
+        WorkloadMode::Scrub => "scrub",
+        WorkloadMode::FrameStep => "frameStep",
+    }
+    .to_string()
+}
+
+/// Returns the workload-specific deadline threshold in microseconds.
+/// Returns `None` for `Playback` (uses `FrameDeadline::present_by` instead).
+fn workload_deadline_us(mode: WorkloadMode) -> Option<u64> {
+    match mode {
+        WorkloadMode::Playback => None,
+        WorkloadMode::PausedInteraction => Some(DEADLINE_US_PAUSED_INTERACTION),
+        WorkloadMode::SeekCold => Some(DEADLINE_US_SEEK_COLD),
+        WorkloadMode::SeekWarm => Some(DEADLINE_US_SEEK_WARM),
+        WorkloadMode::Scrub => Some(DEADLINE_US_SCRUB),
+        WorkloadMode::FrameStep => Some(DEADLINE_US_FRAME_STEP),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SessionTelemetryCollector — public API
+// ---------------------------------------------------------------------------
+
+/// Session-scoped telemetry aggregator.
+///
+/// Cheaply cloneable — all clones share the same `Arc<Mutex<SessionState>>`.
+/// Registered as Tauri managed state so `get_session_telemetry` can query it
+/// independently of `PerformanceManager`.
+#[derive(Clone)]
+pub struct SessionTelemetryCollector {
+    inner: Arc<Mutex<SessionState>>,
+}
+
+impl SessionTelemetryCollector {
+    /// Create a new collector. The session clock starts now.
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(SessionState::default())),
+        }
+    }
+
+    /// Record one completed frame.
+    ///
+    /// Called by [`PerformanceManager::record`] after updating the ring buffer.
+    /// All Phase 5 fields are read: `queue_wait_us`, `ipc_wait_us`,
+    /// `deadline_miss`, `dropped`, `gpu_render_us`, `source`.
+    pub fn push(&self, telemetry: &FrameTelemetry) {
+        self.inner.lock().push(telemetry);
+    }
+
+    /// Record an accepted explicit native demand. Continuous audio-clock
+    /// ticks intentionally do not call this method.
+    pub fn record_request_received(&self, workload: WorkloadMode) {
+        self.inner
+            .lock()
+            .workload_buckets
+            .entry(workload)
+            .or_insert_with(WorkloadBucket::new)
+            .record_request();
+    }
+
+    /// Record one accepted explicit demand by its unique operation ID.
+    pub fn record_request_received_for(&self, request_id: &str, workload: WorkloadMode) {
+        let mut state = self.inner.lock();
+        if !state.received_request_ids.insert(request_id.to_string()) {
+            return;
+        }
+        state
+            .workload_buckets
+            .entry(workload)
+            .or_insert_with(WorkloadBucket::new)
+            .record_request();
+    }
+
+    /// Record exactly one terminal outcome for an explicit native demand.
+    pub fn record_request_terminal(&self, workload: WorkloadMode, outcome: NativeDemandOutcome) {
+        self.inner
+            .lock()
+            .workload_buckets
+            .entry(workload)
+            .or_insert_with(WorkloadBucket::new)
+            .record_request_terminal(outcome);
+    }
+
+    /// Record one terminal outcome for an accepted explicit demand. Returns
+    /// false for an unknown or already-terminal request so late native work
+    /// cannot duplicate a frontend timeout/supersession outcome.
+    pub fn record_request_terminal_once(
+        &self,
+        request_id: &str,
+        workload: WorkloadMode,
+        outcome: NativeDemandOutcome,
+    ) -> bool {
+        let mut state = self.inner.lock();
+        if !state.received_request_ids.contains(request_id)
+            || !state.terminal_request_ids.insert(request_id.to_string())
+        {
+            return false;
+        }
+        state
+            .workload_buckets
+            .entry(workload)
+            .or_insert_with(WorkloadBucket::new)
+            .record_request_terminal(outcome);
+        true
+    }
+
+    pub fn set_experiment_context(&self, context: ScrubExperimentContext) {
+        self.inner.lock().experiment_context = Some(context);
+    }
+
+    pub fn clear_experiment_context(&self) {
+        self.inner.lock().experiment_context = None;
+    }
+
+    pub fn experiment_context(&self) -> Option<ScrubExperimentContext> {
+        self.inner.lock().experiment_context.clone()
+    }
+
+    /// Record a policy event — call when `PerformanceManager` updates policy.
+    pub fn record_policy_event(&self, background_paused: bool, interactive_throttled: bool) {
+        let mut s = self.inner.lock();
+        if background_paused {
+            s.policy_background_pauses += 1;
+        }
+        if interactive_throttled {
+            s.policy_interactive_throttles += 1;
+        }
+    }
+
+    /// Return a snapshot of all session statistics.
+    ///
+    /// Takes a brief Mutex lock; suitable to call from any thread.
+    pub fn snapshot(&self) -> SessionSnapshot {
+        self.inner.lock().snapshot()
+    }
+
+    /// Reset all counters and restart the session clock.
+    ///
+    /// Call on project-open if you want per-project (not per-app) statistics.
+    /// `PerformanceManager::reset()` does NOT call this automatically.
+    pub fn reset_session(&self) {
+        let mut s = self.inner.lock();
+        *s = SessionState::default();
+    }
+
+    /// Number of frames collected so far (for testing / health checks).
+    pub fn frames_produced(&self) -> u64 {
+        self.inner.lock().frames_produced
+    }
+
+    /// Record the frame transfer path / source directly. The producer supplies
+    /// the closed enum so a new path cannot silently become `unknown` or CPU.
+    pub fn record_frame_source(&self, transfer_path: FrameTransferPath) {
+        let mut s = self.inner.lock();
+        s.frames_produced += 1;
+        match transfer_path {
+            FrameTransferPath::DxgiShared => s.dxgi_nv12_frames += 1,
+            FrameTransferPath::MetalZeroCopyNv12 => s.metal_nv12_frames += 1,
+            FrameTransferPath::MetalZeroCopyP010 => s.metal_p010_frames += 1,
+            FrameTransferPath::CpuNv12 => s.cpu_nv12_frames += 1,
+            FrameTransferPath::CpuP010 => s.cpu_p010_frames += 1,
+            FrameTransferPath::CpuRgba => s.cpu_rgba_frames += 1,
+            FrameTransferPath::GpuRaster
+            | FrameTransferPath::LookaheadQueue
+            | FrameTransferPath::UnchangedSkipped
+            | FrameTransferPath::Mixed
+            | FrameTransferPath::Dropped
+            | FrameTransferPath::Stale
+            | FrameTransferPath::Unknown => s.unknown_frames += 1,
+        }
+    }
+}
+
+impl Default for SessionTelemetryCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::wgpu_compositor::frame_telemetry::FrameTelemetry;
+    use crate::wgpu_compositor::render_path::FrameSource;
+    use std::time::Instant;
+
+    fn rgba_frame(
+        decode_us: u64,
+        queue_wait_us: Option<u64>,
+        deadline_miss: bool,
+        dropped: bool,
+    ) -> FrameTelemetry {
+        FrameTelemetry {
+            decode_cpu_us: decode_us,
+            queue_wait_us,
+            deadline_miss,
+            dropped,
+            recorded_at: Some(Instant::now()),
+            source: FrameSource::CpuRgba {
+                width: 1920,
+                height: 1080,
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn empty_snapshot_has_none_latencies() {
+        let c = SessionTelemetryCollector::new();
+        let s = c.snapshot();
+        assert_eq!(s.frames_produced, 0);
+        assert!(s.avg_decode_us.is_none());
+        assert!(s.avg_queue_wait_us.is_none());
+        assert!(s.drop_rate_pct.is_none());
+        assert!(s.miss_rate_pct.is_none());
+    }
+
+    #[test]
+    fn explicit_request_counters_use_request_denominator() {
+        let c = SessionTelemetryCollector::new();
+        c.record_request_received(WorkloadMode::Scrub);
+        c.record_request_received(WorkloadMode::Scrub);
+        c.record_request_terminal(WorkloadMode::Scrub, NativeDemandOutcome::Presented);
+        c.record_request_terminal(WorkloadMode::Scrub, NativeDemandOutcome::Superseded);
+        c.record_request_received(WorkloadMode::Playback);
+        c.record_request_terminal(
+            WorkloadMode::Playback,
+            NativeDemandOutcome::DroppedBeforePresent,
+        );
+
+        let snapshot = c.snapshot();
+        let scrub = snapshot
+            .workload_snapshots
+            .get("scrub")
+            .expect("scrub bucket");
+        assert_eq!(scrub.requests_received, 2);
+        assert_eq!(scrub.requests_completed, 1);
+        assert_eq!(scrub.requests_superseded, 1);
+        let playback = snapshot
+            .workload_snapshots
+            .get("playback")
+            .expect("playback bucket");
+        assert_eq!(playback.requests_received, 1);
+        assert_eq!(playback.requests_dropped_before_present, 1);
+    }
+
+    #[test]
+    fn scrub_experiment_context_is_present_in_snapshot_and_json() {
+        let c = SessionTelemetryCollector::new();
+        c.set_experiment_context(ScrubExperimentContext {
+            experiment_id: "cold-backward-vs-forward".to_string(),
+            run_id: "run-01".to_string(),
+            cache_cleared: true,
+            background_decode_disabled: true,
+        });
+
+        let snapshot = c.snapshot();
+        assert_eq!(
+            snapshot
+                .experiment_context
+                .as_ref()
+                .map(|context| context.run_id.as_str()),
+            Some("run-01")
+        );
+        let json = serde_json::to_value(snapshot).expect("snapshot serializes");
+        assert_eq!(
+            json["experimentContext"]["backgroundDecodeDisabled"],
+            serde_json::Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn frame_counts_are_accurate() {
+        let c = SessionTelemetryCollector::new();
+        c.push(&rgba_frame(5000, Some(200), false, false));
+        c.push(&rgba_frame(4000, Some(300), true, false));
+        c.push(&rgba_frame(6000, Some(100), false, true));
+
+        let s = c.snapshot();
+        assert_eq!(s.frames_produced, 3);
+        assert_eq!(s.deadline_misses, 1, "one deadline_miss");
+        assert_eq!(s.frames_dropped, 1, "one dropped");
+    }
+
+    #[test]
+    fn decode_avg_and_peak() {
+        let c = SessionTelemetryCollector::new();
+        c.push(&rgba_frame(2000, None, false, false));
+        c.push(&rgba_frame(8000, None, false, false));
+
+        let s = c.snapshot();
+        assert_eq!(s.avg_decode_us, Some(5000), "avg of 2000+8000 = 5000");
+        assert_eq!(s.peak_decode_us, Some(8000), "peak is 8000");
+    }
+
+    #[test]
+    fn queue_wait_only_counted_when_some() {
+        let c = SessionTelemetryCollector::new();
+        c.push(&rgba_frame(1000, None, false, false)); // no queue_wait
+        c.push(&rgba_frame(1000, Some(400), false, false));
+        c.push(&rgba_frame(1000, Some(600), false, false));
+
+        let s = c.snapshot();
+        assert_eq!(s.avg_queue_wait_us, Some(500), "avg of 400+600 / 2");
+        assert_eq!(s.peak_queue_wait_us, Some(600));
+    }
+
+    #[test]
+    fn actor_wait_is_reported_separately_from_decode_time() {
+        let c = SessionTelemetryCollector::new();
+        c.push(&FrameTelemetry {
+            decode_cpu_us: 1_000,
+            actor_wait_us: Some(20_000),
+            ..Default::default()
+        });
+        c.push(&FrameTelemetry {
+            decode_cpu_us: 3_000,
+            actor_wait_us: Some(40_000),
+            ..Default::default()
+        });
+
+        let snapshot = c.snapshot();
+        assert_eq!(snapshot.avg_decode_us, Some(2_000));
+        assert_eq!(snapshot.avg_actor_wait_us, Some(30_000));
+        assert_eq!(snapshot.peak_actor_wait_us, Some(40_000));
+    }
+
+    #[test]
+    fn drop_rate_and_miss_rate_percentages() {
+        let c = SessionTelemetryCollector::new();
+        c.push(&rgba_frame(1000, None, true, false));
+        c.push(&rgba_frame(1000, None, false, true));
+        c.push(&rgba_frame(1000, None, false, false));
+        c.push(&rgba_frame(1000, None, false, false));
+
+        let s = c.snapshot();
+        let miss_pct = s.miss_rate_pct.unwrap();
+        let drop_pct = s.drop_rate_pct.unwrap();
+        assert!((miss_pct - 25.0).abs() < 0.01, "1/4 miss = 25%");
+        assert!((drop_pct - 25.0).abs() < 0.01, "1/4 drop = 25%");
+    }
+
+    #[test]
+    fn source_breakdown_counts_correctly() {
+        let c = SessionTelemetryCollector::new();
+        c.push(&FrameTelemetry {
+            source: FrameSource::DxgiNv12 {
+                width: 1920,
+                height: 1080,
+            },
+            ..Default::default()
+        });
+        c.push(&FrameTelemetry {
+            source: FrameSource::CpuNv12 {
+                width: 1920,
+                height: 1080,
+            },
+            ..Default::default()
+        });
+        c.push(&FrameTelemetry {
+            source: FrameSource::CpuRgba {
+                width: 1920,
+                height: 1080,
+            },
+            ..Default::default()
+        });
+
+        let s = c.snapshot();
+        assert_eq!(s.frames_by_source.dxgi_nv12, 1);
+        assert_eq!(s.frames_by_source.cpu_nv12, 1);
+        assert_eq!(s.frames_by_source.cpu_rgba, 1);
+        assert_eq!(s.frames_by_source.unknown, 0);
+    }
+
+    #[test]
+    fn test_record_frame_source_direct() {
+        let c = SessionTelemetryCollector::new();
+        c.record_frame_source(FrameTransferPath::DxgiShared);
+        c.record_frame_source(FrameTransferPath::CpuNv12);
+        c.record_frame_source(FrameTransferPath::CpuRgba);
+        c.record_frame_source(FrameTransferPath::Unknown);
+
+        let s = c.snapshot();
+        assert_eq!(s.frames_produced, 4);
+        assert_eq!(s.frames_by_source.dxgi_nv12, 1);
+        assert_eq!(s.frames_by_source.cpu_nv12, 1);
+        assert_eq!(s.frames_by_source.cpu_rgba, 1);
+        assert_eq!(s.frames_by_source.unknown, 1);
+    }
+
+    #[test]
+    fn reset_session_clears_all_state() {
+        let c = SessionTelemetryCollector::new();
+        c.push(&rgba_frame(5000, Some(300), true, false));
+        assert_eq!(c.frames_produced(), 1);
+
+        c.reset_session();
+        let s = c.snapshot();
+        assert_eq!(s.frames_produced, 0);
+        assert!(s.avg_decode_us.is_none());
+        assert!(s.avg_queue_wait_us.is_none());
+    }
+
+    #[test]
+    fn policy_events_accumulate() {
+        let c = SessionTelemetryCollector::new();
+        c.record_policy_event(true, false);
+        c.record_policy_event(true, false);
+        c.record_policy_event(false, true);
+
+        let s = c.snapshot();
+        assert_eq!(s.policy_background_pauses, 2);
+        assert_eq!(s.policy_interactive_throttles, 1);
+    }
+
+    #[test]
+    fn keyed_request_terminal_is_recorded_once() {
+        let c = SessionTelemetryCollector::new();
+        c.record_request_received_for("op-1", WorkloadMode::Scrub);
+        assert!(c.record_request_terminal_once(
+            "op-1",
+            WorkloadMode::Scrub,
+            NativeDemandOutcome::Presented,
+        ));
+        assert!(!c.record_request_terminal_once(
+            "op-1",
+            WorkloadMode::Scrub,
+            NativeDemandOutcome::Cancelled,
+        ));
+        assert!(!c.record_request_terminal_once(
+            "unknown",
+            WorkloadMode::Scrub,
+            NativeDemandOutcome::Failed,
+        ));
+
+        let snapshot = c.snapshot();
+        let scrub = snapshot
+            .workload_snapshots
+            .get("scrub")
+            .expect("scrub workload snapshot");
+        assert_eq!(scrub.requests_received, 1);
+        assert_eq!(scrub.requests_presented, 1);
+        assert_eq!(scrub.requests_completed, 1);
+        assert_eq!(scrub.requests_cancelled, 0);
+        assert_eq!(scrub.requests_failed, 0);
+    }
+
+    #[test]
+    fn session_duration_is_positive() {
+        let c = SessionTelemetryCollector::new();
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        assert!(c.snapshot().session_duration_secs > 0.0);
+    }
+}

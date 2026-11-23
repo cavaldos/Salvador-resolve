@@ -1,0 +1,22 @@
+{
+  "name": "salvador-cli",
+  "version": "0.0.1",
+  "type": "module",
+  "bin": {
+    "salvador": "src/index.ts"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "build": "tsc --noEmit",
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@salvador/core": "*",
+    "@salvador/media": "*"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15",
+    "vitest": "^3.2.7"
+  }
+}

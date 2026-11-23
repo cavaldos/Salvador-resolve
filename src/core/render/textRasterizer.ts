@@ -1,0 +1,1010 @@
+import type { EvaluatedTextLayer } from "../evaluation/types";
+import { textEffectConfigToScene, type TextEffectConfig, layerToTextEffectConfig, CanvasDevice, defaultConfig as engineDefaultConfig, _buildConfig, renderTextTemplateToCanvas, renderTextEffectToCanvas, resolveTextTemplateArtifact } from "@clypra-studio/engine";
+import { useEffectsStore } from "../../features/text-effects/store/effectsStore";
+import { invalidateEvaluationCache } from "../evaluation/evaluator";
+import { useTimelineStore } from "../../store/timelineStore";
+import { effectBleed, resolveTextEffectDefinition } from "../../lib/text/textClip";
+import { getTextRenderMetrics, normalizeFontSize } from "../../lib/utils/fixedSizing";
+import { traceTextRenderScene } from "./textRenderTrace";
+import { resolveTemplateControlValues } from "../../lib/text/templateControls";
+import {
+  calculateOptimalTemplateLayout,
+  measureTemplateContentBounds,
+} from "./templateScale";
+import { renderBubbleBackground } from "./bubbleRenderer";
+import { resolveTextBackgroundGeometry } from "../../lib/text/backgroundGeometry";
+import {
+  evaluateGlyphTransform,
+  isGlyphAnimatedPreset,
+} from "../animation/glyphAnimator";
+import { getTextAnimationPreset } from "../../features/text-animations/animationCatalog";
+
+
+
+/**
+ * Per-key cache for hasVisibleAlpha results.
+ * The synchronous getImageData + pixel scan is expensive on constrained GPUs
+ * (Intel HD 520 class). Because the rendered output is deterministic for a
+ * given raster key we only need to scan once per unique layer state.
+ * Capped at 256 entries — text layers are few and keys are reused heavily.
+ */
+const _alphaCheckCache = new Map<string, boolean>();
+const _ALPHA_CACHE_MAX = 256;
+
+function hasVisibleAlpha(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, width: number, height: number): boolean | null {
+  try {
+    const sampleWidth = Math.max(1, Math.floor(width));
+    const sampleHeight = Math.max(1, Math.floor(height));
+    const image = ctx.getImageData(0, 0, sampleWidth, sampleHeight);
+    const step = Math.max(4, Math.floor(image.data.length / 4096 / 4) * 4);
+
+    for (let i = 3; i < image.data.length; i += step) {
+      if (image.data[i] > 8) return true;
+    }
+
+    return false;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cached variant of hasVisibleAlpha.
+ * Returns the cached result for the given raster key if available,
+ * otherwise runs the scan and stores the result.
+ */
+function hasVisibleAlphaCached(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  width: number,
+  height: number,
+  rasterKey: string,
+): boolean | null {
+  const cached = _alphaCheckCache.get(rasterKey);
+  if (cached !== undefined) return cached;
+
+  const result = hasVisibleAlpha(ctx, width, height);
+  if (result !== null) {
+    // Evict oldest entry when at capacity (insertion-order Map)
+    if (_alphaCheckCache.size >= _ALPHA_CACHE_MAX) {
+      const oldest = _alphaCheckCache.keys().next().value;
+      if (oldest !== undefined) _alphaCheckCache.delete(oldest);
+    }
+    _alphaCheckCache.set(rasterKey, result);
+  }
+  return result;
+}
+
+interface PixelBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+function alphaBounds(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  width: number,
+  height: number,
+): PixelBounds | null {
+  try {
+    const pixels = ctx.getImageData(0, 0, width, height).data;
+    let minX = width;
+    let minY = height;
+    let maxX = -1;
+    let maxY = -1;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        if (pixels[(y * width + x) * 4 + 3] <= 8) continue;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+    return maxX < 0
+      ? null
+      : { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+  } catch {
+    return null;
+  }
+}
+
+function alphaLineBounds(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  width: number,
+  height: number,
+): PixelBounds[] {
+  try {
+    const pixels = ctx.getImageData(0, 0, width, height).data;
+    const rows: number[] = [];
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        if (pixels[(y * width + x) * 4 + 3] > 8) {
+          rows.push(y);
+          break;
+        }
+      }
+    }
+    const groups: Array<{ start: number; end: number }> = [];
+    for (const row of rows) {
+      const last = groups[groups.length - 1];
+      if (!last || row > last.end + 1) groups.push({ start: row, end: row });
+      else last.end = row;
+    }
+    return groups.map(({ start, end }) => {
+      let minX = width;
+      let maxX = -1;
+      for (let y = start; y <= end; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+          if (pixels[(y * width + x) * 4 + 3] <= 8) continue;
+          minX = Math.min(minX, x);
+          maxX = Math.max(maxX, x);
+        }
+      }
+      return { x: minX, y: start, width: maxX - minX + 1, height: end - start + 1 };
+    }).filter((bounds) => bounds.width > 0);
+  } catch {
+    return [];
+  }
+}
+
+function roundedRect(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+): void {
+  const r = Math.min(Math.max(0, radius), width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + width, y, x + width, y + height, r);
+  ctx.arcTo(x + width, y + height, x, y + height, r);
+  ctx.arcTo(x, y + height, x, y, r);
+  ctx.arcTo(x, y, x + width, y, r);
+  ctx.closePath();
+}
+
+/**
+ * The Studio engine has a single panel primitive. Split-line panels and the
+ * inspector's Y offset are Salvador presentation details, so render them from
+ * the exact text alpha bounds before compositing the text pixels above them.
+ */
+function drawCustomBackgroundPanel(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  textCanvas: OffscreenCanvas | HTMLCanvasElement,
+  width: number,
+  height: number,
+  geometry: NonNullable<ReturnType<typeof resolveTextBackgroundGeometry>>,
+  color: string,
+  borderRadius: number,
+): void {
+  const textCtx = textCanvas.getContext("2d", { alpha: true }) as OffscreenCanvasRenderingContext2D | null;
+  if (!textCtx) return;
+  const bounds = alphaBounds(textCtx, width, height);
+  if (!bounds) return;
+
+  // 50% means the panel is centred on the text. Keep the full adjustment
+  // within its own vertical padding so it remains inside the authored layout.
+  const offsetY = ((geometry.yOffset - 50) / 50) * geometry.paddingY;
+  const panels = geometry.style === "split"
+    ? alphaLineBounds(textCtx, width, height)
+    : [bounds];
+  ctx.save();
+  ctx.globalAlpha = geometry.opacity / 100;
+  ctx.fillStyle = color;
+  for (const panelBounds of panels) {
+    const panel = {
+      x: panelBounds.x - geometry.paddingX,
+      y: panelBounds.y - geometry.paddingY + offsetY,
+      width: panelBounds.width + geometry.paddingX * 2,
+      height: panelBounds.height + geometry.paddingY * 2,
+    };
+    roundedRect(ctx, panel.x, panel.y, panel.width, panel.height, borderRadius);
+    ctx.fill();
+  }
+  ctx.restore();
+  ctx.drawImage(textCanvas, 0, 0);
+}
+
+export function buildPlainTextEffectConfig(layer: EvaluatedTextLayer, offW: number, offH: number, fontSize: number, scaleX: number, scaleY: number): TextEffectConfig {
+  const plainConfig = layerToTextEffectConfig(layer);
+  const background = resolveTextBackgroundGeometry(layer.background);
+  const hasExplicitWidthConstraint =
+    typeof layer.maxWidth === "number" &&
+    Number.isFinite(layer.maxWidth) &&
+    layer.maxWidth > 0;
+  return {
+    ...plainConfig,
+    canvasWidth: offW,
+    canvasHeight: offH,
+    fontSize,
+    fontFamily: layer.fontFamily,
+    letterSpacing: (layer.letterSpacing ?? plainConfig.letterSpacing ?? 0) * scaleX,
+    strokeWidth: layer.stroke ? layer.stroke.width * scaleY : plainConfig.strokeWidth * scaleY,
+    shadowBlur: layer.shadow ? layer.shadow.blur * scaleY : plainConfig.shadowBlur * scaleY,
+    shadowOffsetX: layer.shadow ? layer.shadow.offsetX * scaleX : plainConfig.shadowOffsetX * scaleX,
+    shadowOffsetY: layer.shadow ? layer.shadow.offsetY * scaleY : plainConfig.shadowOffsetY * scaleY,
+    panelEnabled: Boolean(background),
+    panelColor: layer.background?.color ?? plainConfig.panelColor,
+    panelOpacity: background?.opacity ?? plainConfig.panelOpacity,
+    panelRadius: layer.background ? layer.background.borderRadius * scaleY : plainConfig.panelRadius * scaleY,
+    panelPaddingX: background ? background.paddingX * scaleX : plainConfig.panelPaddingX * scaleX,
+    panelPaddingY: background ? background.paddingY * scaleY : plainConfig.panelPaddingY * scaleY,
+    // Normal title text is point text: only authored newlines create lines.
+    // Captions and explicitly constrained text retain automatic wrapping.
+    wrapText: layer.textRole === "caption" || hasExplicitWidthConstraint,
+  } as TextEffectConfig;
+}
+
+/**
+ * The Studio engine owns glyph drawing but does not currently model text
+ * decoration. Keep decoration in this shared raster path so native preview,
+ * browser preview, and export receive identical pixels.
+ */
+export function renderTextUnderline(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  layer: EvaluatedTextLayer,
+  config: TextEffectConfig,
+): void {
+  if (layer.textDecoration !== "underline") return;
+
+  const canvasWidth = Math.max(1, Number(config.canvasWidth) || 1);
+  const canvasHeight = Math.max(1, Number(config.canvasHeight) || 1);
+  const panelEnabled = Boolean(config.panelEnabled);
+  const safeX = panelEnabled
+    ? Math.max(0, Number(config.panelPaddingX) || 0) + 16
+    : Math.min(48, canvasWidth * 0.06);
+  const safeY = panelEnabled
+    ? Math.max(0, Number(config.panelPaddingY) || 0) + 16
+    : Math.min(40, canvasHeight * 0.1);
+  const safeWidth = Math.max(40, canvasWidth - safeX * 2);
+  const safeHeight = Math.max(24, canvasHeight - safeY * 2);
+  const fontSize = Math.max(1, Number(config.fontSize) || layer.fontSize);
+  const lineHeight = Number(config.lineHeight) || 1.2;
+  const letterSpacing = Number(config.letterSpacing) || 0;
+  const lines = layer.text.split("\n");
+  const textBlockHeight =
+    lines.length === 1
+      ? fontSize
+      : (lines.length - 1) * fontSize * lineHeight + fontSize;
+  const vertical = config.textPosY === "top"
+    ? safeY + fontSize * 0.85
+    : config.textPosY === "bottom"
+      ? safeY + safeHeight - textBlockHeight + fontSize * 0.85
+      : safeY + (safeHeight - textBlockHeight) / 2 + fontSize * 0.85;
+  const align = config.textPosX === "left"
+    ? "left"
+    : config.textPosX === "right"
+      ? "right"
+      : "center";
+  const anchorX = align === "left"
+    ? safeX
+    : align === "right"
+      ? safeX + safeWidth
+      : safeX + safeWidth / 2;
+
+  ctx.save();
+  ctx.font = `${config.fontStyle ?? "normal"} ${config.fontWeight ?? "400"} ${fontSize}px "${config.fontFamily ?? layer.fontFamily}"`;
+  ctx.strokeStyle = layer.color;
+  ctx.lineWidth = Math.max(1, fontSize * 0.055);
+  ctx.lineCap = "butt";
+  for (const [index, line] of lines.entries()) {
+    const lineWidth =
+      ctx.measureText(line).width + Math.max(0, line.length - 1) * letterSpacing;
+    const startX = align === "left"
+      ? anchorX
+      : align === "right"
+        ? anchorX - lineWidth
+        : anchorX - lineWidth / 2;
+    const y = vertical + index * fontSize * lineHeight + Math.max(1, fontSize * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(startX, y);
+    ctx.lineTo(startX + lineWidth, y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function templateControlValues(layer: EvaluatedTextLayer, artifact: ReturnType<typeof resolveTextTemplateArtifact>): Record<string, unknown> {
+  return resolveTemplateControlValues(artifact, {
+    customization: layer.customization,
+    templateControlValues: layer.templateControlValues,
+    fallbackText: layer.text,
+  });
+}
+
+function renderTemplateArtifact(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  layer: EvaluatedTextLayer,
+  artifact: ReturnType<typeof resolveTextTemplateArtifact>,
+  width: number,
+  height: number,
+): boolean {
+  if (!artifact) return false;
+  const localTime =
+    layer.time !== undefined && layer.clipStartTime !== undefined
+      ? layer.time - layer.clipStartTime
+      : 0;
+  const controlValues = templateControlValues(layer, artifact);
+  const contentBounds = measureTemplateContentBounds(artifact, controlValues);
+  const docWidth = Math.max(
+    1,
+    Math.round(Number(artifact?.document?.canvas?.width) || 1920),
+  );
+  const docHeight = Math.max(
+    1,
+    Math.round(Number(artifact?.document?.canvas?.height) || 1080),
+  );
+
+  const isContentBounded =
+    width < docWidth * 0.85 &&
+    height < docHeight * 0.85 &&
+    contentBounds.width > 0 &&
+    contentBounds.height > 0;
+
+  let uniformWidth: number;
+  let uniformHeight: number;
+  let offsetX0: number;
+  let offsetY0: number;
+
+  if (isContentBounded) {
+    const scale = width / Math.max(1, contentBounds.width);
+    uniformWidth = Math.max(1, Math.round(docWidth * scale));
+    uniformHeight = Math.max(1, Math.round(docHeight * scale));
+    offsetX0 = -Math.round(contentBounds.minX * scale);
+    offsetY0 = -Math.round(contentBounds.minY * scale);
+  } else {
+    const layout = calculateOptimalTemplateLayout(
+      artifact,
+      width,
+      height,
+      controlValues,
+    );
+    uniformWidth = layout.uniformWidth;
+    uniformHeight = layout.uniformHeight;
+    offsetX0 = layout.offsetX;
+    offsetY0 = layout.offsetY;
+  }
+
+  ctx.save();
+  // Native text raster assets are centered around the evaluated layer origin.
+  // The package renderer uses composition-space coordinates from (0, 0).
+  ctx.translate(-width / 2 + offsetX0, -height / 2 + offsetY0);
+  renderTextTemplateToCanvas(ctx, {
+    artifact,
+    context: {
+      environment: "editor",
+      time: localTime,
+      clipDuration: layer.clipDuration,
+      width: uniformWidth,
+      height: uniformHeight,
+      controlValues,
+    },
+  });
+  ctx.restore();
+  return true;
+}
+
+/**
+ * Per-glyph canvas rendering for character-staggered text animation presets.
+ *
+ * Called by rasterizeTextLayer when a text clip has an active in/out motion
+ * preset that uses stagger (e.g. "Flip In", "Wave In"). Each character is
+ * drawn with its own transform derived from the preset track evaluator, exactly
+ * matching what clypra-studio's AnimationPreviewStage produces per-frame.
+ *
+ * Canvas 2D transform order: translate → rotate → scale → skewX.
+ * Each glyph's transform origin is its own baseline center — matching Studio's
+ * per-span CSS transform-origin: center behavior.
+ *
+ * @param ctx    - 2D canvas context (main or OffscreenCanvas Worker)
+ * @param layer  - Evaluated text layer with font, text, and dimensions
+ * @param preset - The resolved text animation preset (must have stagger config)
+ * @param progress - Overall animation progress [0,1] for in or out phase
+ * @param width  - Destination canvas width in pixels
+ * @param height - Destination canvas height in pixels
+ */
+async function renderGlyphAnimatedText(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  layer: EvaluatedTextLayer,
+  preset: NonNullable<ReturnType<typeof getTextAnimationPreset>>,
+  progress: number,
+  width: number,
+  height: number,
+): Promise<void> {
+  const text = layer.text ?? "";
+  if (!text) return;
+
+  // ── Split into stagger units ──────────────────────────────────────────────
+  const staggerUnit = preset.stagger?.unit ?? "character";
+  let units: string[];
+  if (staggerUnit === "word") {
+    units = text.split(/(\s+)/).filter(Boolean);
+  } else if (staggerUnit === "line") {
+    units = text.split(/\n/);
+  } else {
+    // character (default)
+    units = Array.from(text);
+  }
+  const totalUnits = units.length;
+
+  // ── Font setup ───────────────────────────────────────────────────────────
+  const fontSize = layer.fontSize;
+  const fontWeight = layer.fontWeight ?? "normal";
+  const fontStyle = layer.fontStyle ?? "normal";
+  const fontFamily = layer.fontFamily ?? "sans-serif";
+  const fontSpec = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
+  ctx.font = fontSpec;
+  ctx.textBaseline = "alphabetic";
+
+  // ── Measure total text width to compute baseline position ────────────────
+  // We draw at the layer origin (0,0 is center of the layer's bounding box in
+  // the compositor), so translate to top-left first.
+  const layerW = width;
+  const layerH = height;
+
+  // Measure total advance width for centering
+  let totalAdvance = 0;
+  const advances: number[] = [];
+  for (const unit of units) {
+    const m = ctx.measureText(unit);
+    const advance = m.width;
+    advances.push(advance);
+    totalAdvance += advance;
+  }
+
+  const textAlign = layer.textAlign ?? "center";
+  let cursorX: number;
+  if (textAlign === "left") {
+    cursorX = -layerW / 2;
+  } else if (textAlign === "right") {
+    cursorX = layerW / 2 - totalAdvance;
+  } else {
+    // center
+    cursorX = -totalAdvance / 2;
+  }
+
+  // Vertical baseline: fontSize * 0.82 matches the engine's baseline offset
+  const baseline = fontSize * 0.82;
+  const cursorY = layerH * 0 + baseline - layerH / 2 + (layerH - fontSize) / 2;
+
+  // ── Draw each unit with its individual transform ──────────────────────────
+  for (let i = 0; i < totalUnits; i++) {
+    const unit = units[i];
+    const advance = advances[i];
+    const halfAdvance = advance / 2;
+
+    const transform = evaluateGlyphTransform(preset, progress, i, totalUnits);
+
+    // Glyph center X in canvas space
+    const glyphCenterX = cursorX + halfAdvance;
+
+    ctx.save();
+
+    // Apply blur filter before transforms (affects entire glyph draw)
+    if (transform.blur > 0) {
+      ctx.filter = `blur(${transform.blur.toFixed(2)}px)`;
+    }
+
+    // Translate to glyph center → apply transforms → draw at relative (-halfAdvance, 0)
+    ctx.translate(
+      glyphCenterX + transform.translateX,
+      cursorY + transform.translateY,
+    );
+    if (transform.rotation !== 0) {
+      ctx.rotate((transform.rotation * Math.PI) / 180);
+    }
+    if (transform.scaleX !== 1 || transform.scaleY !== 1) {
+      ctx.scale(transform.scaleX, transform.scaleY);
+    }
+    if (transform.skewX !== 0) {
+      // 2D skewX: ctx.transform(1, 0, tan(angle), 1, 0, 0)
+      ctx.transform(1, 0, Math.tan((transform.skewX * Math.PI) / 180), 1, 0, 0);
+    }
+
+    ctx.globalAlpha = Math.max(0, Math.min(1, transform.opacity));
+    ctx.fillStyle = layer.color ?? "#ffffff";
+    ctx.fillText(unit, -halfAdvance, 0);
+
+    ctx.restore();
+
+    // Advance cursor by unit width plus any tracking offset
+    cursorX += advance + transform.tracking;
+  }
+}
+
+/**
+ * Rasterize a text layer.
+ *
+ * CRITICAL: This is the canonical text rendering path.
+ * Preview and export MUST use the same code path.
+ *
+ * Styled layers (styleId present) always go through the package effect facade,
+ * which is the authoritative pipeline for stroke-blur, glow, bevel, and
+ * all post-fx. When ctx.filter is unsupported (WKWebView on macOS),
+ * rendering is routed through the native compositor so visual
+ * output is consistent across platforms.
+ *
+ * Plain text layers (no styleId) use a minimal Canvas 2D path that
+ * respects the same baseline alignment as the engine (fontSize * 0.82).
+ */
+export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, layer: EvaluatedTextLayer, width: number, height: number, scaleX: number, scaleY: number): Promise<void> {
+  if (layer.templateId) {
+    const pinnedArtifact = resolveTextTemplateArtifact(layer.templateSnapshot);
+    if (renderTemplateArtifact(ctx, layer, pinnedArtifact, width, height)) return;
+    const { useTemplateStore } = await import("@/features/text-templates/templateStore");
+    let templates = useTemplateStore.getState().templates;
+    if (templates.length === 0) {
+      try {
+        await useTemplateStore.getState().loadTemplates();
+        templates = useTemplateStore.getState().templates;
+      } catch (e) {
+        console.error("[Salvador:Rasterizer] Failed to load templates index:", e);
+      }
+    }
+    const rawTemplate = templates.find((t) => t.id === layer.templateId);
+    // Existing timeline instances are immutable snapshots. Resolve them
+    // before consulting the live catalog so a Studio republish cannot change
+    // the appearance of an already-created clip.
+    let template = ((layer.templateSnapshot as any)?.layers?.length || (layer.templateSnapshot as any)?.elements?.length)
+      ? layer.templateSnapshot
+      : undefined;
+
+    const requestedRevisionId = layer.templateRevisionId;
+    const catalogRevisionId = (rawTemplate as any)?.revisionId ?? (rawTemplate as any)?.revision?.revisionId;
+    if (!template && rawTemplate && (!requestedRevisionId || requestedRevisionId === catalogRevisionId)) {
+      template = rawTemplate.templateData || rawTemplate.lottieData;
+    }
+
+    if (rawTemplate && !template) {
+      try {
+        const { TextEffectsApi } = await import("@/features/text-effects/api/textEffectsApi");
+        const templateData = await TextEffectsApi.getTemplateData(
+          rawTemplate.category,
+          rawTemplate.id,
+          requestedRevisionId ? { revisionId: requestedRevisionId } : {},
+        );
+        useTemplateStore.setState((state) => ({
+          templates: state.templates.map((t) => (t.id === rawTemplate.id ? { ...t, templateData, lottieData: templateData } : t)),
+        }));
+        template = templateData;
+        const { useTimelineStore } = await import("@/store/timelineStore");
+        useTimelineStore.getState().incrementEpoch();
+      } catch (err) {
+        console.error(`[Salvador:Rasterizer] Failed to lazy-load template data for template ${rawTemplate.id}:`, err);
+      }
+    }
+
+    const resolvedArtifact = resolveTextTemplateArtifact(template);
+    if (renderTemplateArtifact(ctx, layer, resolvedArtifact, width, height)) return;
+
+    if (layer.clipKind === "text-template") {
+      // A pinned revision is part of the clip contract. Never substitute a
+      // newer catalog revision or silently turn a missing template into plain
+      // text; show a deterministic, actionable placeholder instead.
+      ctx.save();
+      ctx.translate(-width / 2, -height / 2);
+      ctx.strokeStyle = "rgba(255, 92, 92, 0.95)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(1, 1, Math.max(1, width - 2), Math.max(1, height - 2));
+      ctx.fillStyle = "rgba(255, 92, 92, 0.95)";
+      ctx.font = "600 16px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("Template unavailable", width / 2, height / 2 - 10);
+      ctx.font = "12px sans-serif";
+      ctx.fillText(layer.templateRevisionId ? `Revision ${layer.templateRevisionId.slice(0, 12)}…` : "Pinned revision missing", width / 2, height / 2 + 14);
+      ctx.restore();
+      return;
+    }
+
+  }
+
+  // ── Per-glyph animation rendering (early path) ───────────────────────────
+  // When a stagger-based motion preset is active (e.g. "Flip In"), each
+  // character has its own transform. This path handles the animation window
+  // and falls through to normal rendering once the animation is complete.
+  // Loop presets are handled separately by applyLoopMotion in the evaluator.
+  if (
+    layer.motion &&
+    (layer.motionInProgress !== undefined || layer.motionOutProgress !== undefined)
+  ) {
+    const presetId =
+      layer.motionInProgress !== undefined
+        ? layer.motion.inPreset
+        : layer.motion.outPreset;
+    // out-preset progress: 0 = just started exiting → maps to animation progress 0
+    // out-preset progress: 1 = fully exited → maps to animation progress 1
+    const animProgress =
+      layer.motionInProgress !== undefined
+        ? layer.motionInProgress
+        : (layer.motionOutProgress ?? 0);
+
+    const preset = getTextAnimationPreset(presetId);
+    if (preset && isGlyphAnimatedPreset(preset)) {
+      await renderGlyphAnimatedText(ctx, layer, preset, animProgress, width, height);
+      return;
+    }
+    // If preset not found or not glyph-animated, fall through to normal rendering.
+  }
+
+  // CRITICAL: For text clips, fontSize is explicitly managed by the transform system
+  // and already reflects the user's resize operations. scaleX/scaleY are preview quality
+  // scales (e.g., 50% vs 100% preview), NOT text resize scales.
+  // DO NOT apply preview scale to fontSize - it causes double-scaling bugs where
+  // text renders at wrong size after resize operations.
+  // We DO apply scale to geometric properties (bleed, stroke, shadow) for quality independence.
+  const fontSize = layer.fontSize; // Use fontSize directly from layer state
+  const resolvedEffectDef = resolveTextEffectDefinition(
+    layer.styleId,
+    layer.styleDefinition,
+    layer.styleRevisionId,
+    layer.styleContentHash,
+  );
+  const effectDef = resolvedEffectDef && layer.styleSnapshot
+    ? ({ ...resolvedEffectDef, scene: layer.styleSnapshot } as any)
+    : resolvedEffectDef;
+  const declaredBleed = effectBleed({
+    styleId: layer.styleId,
+    effectDefinition: effectDef,
+    stroke: layer.stroke,
+    shadow: layer.shadow
+      ? {
+          blur: layer.shadow.blur,
+          offsetX: layer.shadow.offsetX,
+          offsetY: layer.shadow.offsetY,
+        }
+      : undefined,
+    background: layer.background,
+  });
+
+  // CRITICAL: Calculate UNSCALED dimensions for _buildConfig()
+  // The effect must be rendered at original canvas resolution, then scaled for preview quality.
+  // Otherwise text appears at wrong size during playback (e.g., 50% quality makes text 2x larger).
+  const unscaledFontSize = normalizeFontSize(layer.fontSize);
+  const textMetrics = getTextRenderMetrics(unscaledFontSize);
+  const unscaledBleed = effectBleed({
+    styleId: layer.styleId,
+    effectDefinition: effectDef,
+    stroke: layer.stroke,
+    shadow: layer.shadow,
+    background: layer.background,
+  });
+  // Background panels own the Studio renderer's horizontal gutter in their
+  // persisted layout bounds (see calculateTextClipSize). Do not add it again
+  // as raster-only bleed or the native texture becomes wider than the
+  // transform overlay and clips the last glyph against the authored edge.
+  const ownsHorizontalPanelGutter = Boolean(
+    layer.background && !layer.background.bubblePresetId,
+  );
+  const unscaledPaddingX = ownsHorizontalPanelGutter
+    ? 0
+    : Math.max(textMetrics.paddingX, unscaledBleed.x);
+  const unscaledPaddingY = Math.max(textMetrics.paddingY, unscaledBleed.y);
+
+  const effectPaddingX = unscaledPaddingX * scaleX;
+  const effectPaddingY = unscaledPaddingY * scaleY;
+  const offW = Math.max(1, Math.ceil(width + effectPaddingX * 2));
+  const offH = Math.max(1, Math.ceil(height + effectPaddingY * 2));
+  // Defensive checks: Ensure dimensions are valid positive numbers to prevent rendering crashes
+  const safeWidth = Number.isFinite(layer.width) && layer.width > 0 ? layer.width : 100;
+  const safeHeight = Number.isFinite(layer.height) && layer.height > 0 ? layer.height : 100;
+  const unscaledOffW = Math.max(1, Math.ceil(safeWidth + unscaledPaddingX * 2));
+  const unscaledOffH = Math.max(1, Math.ceil(safeHeight + unscaledPaddingY * 2));
+
+  let engineConfig: TextEffectConfig;
+
+  if (layer.styleId) {
+    if (effectDef) {
+      // New published effects carry the canonical scene snapshot. Render it
+      // directly so the editor never reconstructs visual state from a second
+      // flat/nested representation.
+      if ((effectDef as any).scene?.effectLayers) {
+        const canonicalScene = JSON.parse(JSON.stringify((effectDef as any).scene));
+        const authoredWidth = Math.max(1, Math.ceil(Number(canonicalScene.canvas?.width) || 800));
+        const authoredHeight = Math.max(1, Math.ceil(Number(canonicalScene.canvas?.height) || 200));
+        canonicalScene.text.content = layer.text;
+        canonicalScene.text.fontSize = unscaledFontSize;
+        canonicalScene.text.fontFamily = layer.fontFamily || canonicalScene.text.fontFamily;
+        canonicalScene.text.fontWeight = layer.fontWeight ?? canonicalScene.text.fontWeight;
+        canonicalScene.text.fontStyle = layer.fontStyle ?? canonicalScene.text.fontStyle;
+        canonicalScene.text.letterSpacing = layer.letterSpacing ?? canonicalScene.text.letterSpacing;
+        canonicalScene.text.lineHeight = layer.lineHeight ?? canonicalScene.text.lineHeight;
+        canonicalScene.text.textPosX = layer.textAlign || canonicalScene.text.textPosX;
+        canonicalScene.text.textPosY = layer.verticalAlign === "middle" ? "middle" : layer.verticalAlign || canonicalScene.text.textPosY;
+
+        const evalWidth = Math.max(authoredWidth, Math.ceil(width + 200));
+        const evalHeight = Math.max(authoredHeight, Math.ceil(height + 100));
+        canonicalScene.canvas.width = evalWidth;
+        canonicalScene.canvas.height = evalHeight;
+        traceTextRenderScene(canonicalScene, {
+          path: "program-preview",
+          assetId: layer.styleId,
+          revisionId: (effectDef as any).revisionId,
+          contentHash: (effectDef as any).contentHash,
+          time: layer.time ?? 0,
+        });
+
+        const offscreen = CanvasDevice.acquire(evalWidth, evalHeight);
+        const offCtx = offscreen.getContext("2d", { alpha: true }) as OffscreenCanvasRenderingContext2D | null;
+        if (offCtx) {
+          offCtx.setTransform(1, 0, 0, 1, 0, 0);
+          offCtx.clearRect(0, 0, evalWidth, evalHeight);
+          renderTextEffectToCanvas(offCtx, {
+            source: canonicalScene,
+            context: { environment: "editor", time: layer.time ?? 0, width: evalWidth, height: evalHeight },
+          });
+          ctx.drawImage(
+            offscreen,
+            -evalWidth / 2,
+            -evalHeight / 2,
+          );
+        }
+        Promise.resolve().then(() => CanvasDevice.release(offscreen));
+        return;
+      }
+
+      // Use _buildConfig (single source of truth) instead of TextEffectBuilder
+      // This properly handles effect native dimensions and scales all effect
+      // parameters (stroke width, glow blur, bevel depth) correctly.
+      // CRITICAL: Pass unscaled dimensions to _buildConfig() so text renders at
+      // correct size regardless of preview quality. _buildConfig calculates layout
+      // based on these dimensions, then we override canvasWidth/canvasHeight for
+      // the actual render resolution.
+      const builtCfg = _buildConfig(effectDef, layer.text, unscaledFontSize, unscaledOffW, unscaledOffH, layer.time, layer.clipStartTime, layer.clipDuration);
+
+      // Override canvas dimensions to match scaled render resolution while preserving
+      // the layout calculated at unscaled dimensions
+      // CRITICAL: Also override fontSize to ensure user's resize operations are respected
+      // _buildConfig may recalculate fontSize based on native effect bounds - we must
+      // override it with the user's explicit fontSize from the transform system
+      engineConfig = {
+        ...engineDefaultConfig,
+        ...builtCfg,
+        fontSize: unscaledFontSize, // Force user's fontSize, don't let _buildConfig override it
+        canvasWidth: unscaledOffW,
+        canvasHeight: unscaledOffH,
+        textPosX: layer.textAlign || "center",
+        textPosY: layer.verticalAlign === "middle" ? "middle" : layer.verticalAlign || "middle",
+      } as TextEffectConfig;
+    } else {
+      // styleId present but definition not yet in cache — trigger fetch in background
+      // and fall back to plain text until it resolves and redraws.
+      const store = useEffectsStore.getState();
+      if (!store.prefetchingIds.has(layer.styleId)) {
+        // Mark as prefetching to prevent duplicate network requests
+        useEffectsStore.setState((s) => {
+          const next = new Set(s.prefetchingIds);
+          next.add(layer.styleId!);
+          return { prefetchingIds: next };
+        });
+
+        store
+          .fetchDefinitionOnlyById(layer.styleId)
+          .then(() => {
+            // Once resolved, remove from prefetchingIds (definitions cache is now populated)
+            useEffectsStore.setState((s) => {
+              const next = new Set(s.prefetchingIds);
+              next.delete(layer.styleId!);
+              return { prefetchingIds: next };
+            });
+
+            // Invalidate evaluated scene cache for current epoch and trigger redraw
+            const currentEpoch = useTimelineStore.getState().epoch;
+            invalidateEvaluationCache(currentEpoch);
+            useTimelineStore.getState().incrementEpoch();
+          })
+          .catch((err) => {
+            useEffectsStore.setState((s) => {
+              const next = new Set(s.prefetchingIds);
+              next.delete(layer.styleId!);
+              return { prefetchingIds: next };
+            });
+            console.error(`[Rasterizer] Failed to load text effect ${layer.styleId}:`, err);
+          });
+      }
+
+      engineConfig = buildPlainTextEffectConfig(layer, unscaledOffW, unscaledOffH, unscaledFontSize, 1.0, 1.0);
+    }
+  } else {
+    // Plain text: build configuration from evaluated layer properties
+    // CRITICAL: Use unscaled dimensions and fontSize (same as styled effect path)
+    // to ensure text renders at correct size regardless of preview quality
+    engineConfig = buildPlainTextEffectConfig(layer, unscaledOffW, unscaledOffH, unscaledFontSize, 1.0, 1.0);
+  }
+
+  const sceneDoc = textEffectConfigToScene(engineConfig);
+  traceTextRenderScene(sceneDoc, {
+    path: "program-preview",
+    assetId: layer.styleId,
+    revisionId: (effectDef as any)?.revisionId,
+    contentHash: (effectDef as any)?.contentHash,
+    time: layer.time ?? 0,
+  });
+
+  // Acquire canvas context from the unified CanvasDevice pool
+  // CRITICAL: Use UNSCALED dimensions for text rendering to ensure consistent layout
+  // regardless of preview quality. The result is then scaled during drawImage.
+  const offscreen = CanvasDevice.acquire(unscaledOffW, unscaledOffH);
+  const offCtx = offscreen.getContext("2d", { alpha: true }) as OffscreenCanvasRenderingContext2D | null;
+  if (offCtx) {
+    // Always reset transform state (remove conditional guard to prevent accumulated transforms)
+    offCtx.setTransform(1, 0, 0, 1, 0, 0);
+
+    // Force synchronous canvas clear before drawing
+    offCtx.clearRect(0, 0, unscaledOffW, unscaledOffH);
+
+    // Render bubble decoration behind the text if a bubble preset is selected
+    if (layer.background?.bubblePresetId) {
+      renderBubbleBackground(
+        offCtx,
+        layer.background.bubblePresetId,
+        unscaledPaddingX,
+        unscaledPaddingY,
+        safeWidth,
+        safeHeight,
+        {
+          color: layer.background.color,
+          opacity: layer.background.opacity,
+          borderRadius: layer.background.borderRadius,
+        },
+      );
+    }
+
+    const backgroundGeometry = resolveTextBackgroundGeometry(layer.background);
+    let decorationConfig = engineConfig;
+    const needsCustomBackground = Boolean(
+      backgroundGeometry &&
+        !layer.background?.bubblePresetId &&
+        (backgroundGeometry.style === "split" || backgroundGeometry.yOffset !== 50),
+    );
+    if (needsCustomBackground && backgroundGeometry && layer.background) {
+      const textOnlyCanvas = CanvasDevice.acquire(unscaledOffW, unscaledOffH);
+      const textOnlyCtx = textOnlyCanvas.getContext("2d", { alpha: true }) as OffscreenCanvasRenderingContext2D | null;
+      if (textOnlyCtx) {
+        textOnlyCtx.setTransform(1, 0, 0, 1, 0, 0);
+        textOnlyCtx.clearRect(0, 0, unscaledOffW, unscaledOffH);
+        const textOnlyConfig = { ...engineConfig, panelEnabled: false } as TextEffectConfig;
+        decorationConfig = textOnlyConfig;
+        const textOnlyScene = textEffectConfigToScene(textOnlyConfig);
+        renderTextEffectToCanvas(textOnlyCtx, {
+          source: textOnlyScene,
+          context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },
+        });
+        drawCustomBackgroundPanel(
+          offCtx,
+          textOnlyCanvas,
+          unscaledOffW,
+          unscaledOffH,
+          backgroundGeometry,
+          layer.background.color,
+          engineConfig.panelRadius,
+        );
+      } else {
+        // CanvasDevice can fall back to a canvas implementation without a 2D
+        // context in constrained environments. Preserve the standard panel
+        // rather than producing an invisible title.
+        renderTextEffectToCanvas(offCtx, {
+          source: sceneDoc,
+          context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },
+        });
+      }
+      Promise.resolve().then(() => CanvasDevice.release(textOnlyCanvas));
+    } else {
+      renderTextEffectToCanvas(offCtx, {
+        source: sceneDoc,
+        context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },
+      });
+    }
+    renderTextUnderline(offCtx, layer, decorationConfig);
+
+    // Build a compact key from the inputs that determine rendered pixels.
+    // Avoids importing buildNativeTextRasterKey (cycle risk) while still
+    // being stable across identical frames — the dominant repeated case.
+    const alphaKey = `${layer.layerId}:${layer.styleId ?? ""}:${layer.styleVersion ?? ""}:${unscaledOffW}x${unscaledOffH}:${layer.text}`;
+    const visibleAlpha = hasVisibleAlphaCached(offCtx, unscaledOffW, unscaledOffH, alphaKey);
+
+    if (layer.styleId && visibleAlpha === false) {
+      const fallbackConfig = buildPlainTextEffectConfig(layer, unscaledOffW, unscaledOffH, unscaledFontSize, 1.0, 1.0);
+      const fallbackSceneDoc = textEffectConfigToScene(fallbackConfig);
+      offCtx.clearRect(0, 0, unscaledOffW, unscaledOffH);
+      if (layer.background?.bubblePresetId) {
+        renderBubbleBackground(
+          offCtx,
+          layer.background.bubblePresetId,
+          unscaledPaddingX,
+          unscaledPaddingY,
+          safeWidth,
+          safeHeight,
+          {
+            color: layer.background.color,
+            opacity: layer.background.opacity,
+            borderRadius: layer.background.borderRadius,
+          },
+        );
+      }
+      if (needsCustomBackground && backgroundGeometry && layer.background) {
+        const textOnlyCanvas = CanvasDevice.acquire(unscaledOffW, unscaledOffH);
+        const textOnlyCtx = textOnlyCanvas.getContext("2d", { alpha: true }) as OffscreenCanvasRenderingContext2D | null;
+        if (textOnlyCtx) {
+          textOnlyCtx.setTransform(1, 0, 0, 1, 0, 0);
+          textOnlyCtx.clearRect(0, 0, unscaledOffW, unscaledOffH);
+          const textOnlyConfig = { ...fallbackConfig, panelEnabled: false } as TextEffectConfig;
+          const textOnlyScene = textEffectConfigToScene(textOnlyConfig);
+          renderTextEffectToCanvas(textOnlyCtx, {
+            source: textOnlyScene,
+            context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },
+          });
+          drawCustomBackgroundPanel(
+            offCtx,
+            textOnlyCanvas,
+            unscaledOffW,
+            unscaledOffH,
+            backgroundGeometry,
+            layer.background.color,
+            fallbackConfig.panelRadius,
+          );
+          renderTextUnderline(offCtx, layer, textOnlyConfig);
+        } else {
+          renderTextEffectToCanvas(offCtx, {
+            source: fallbackSceneDoc,
+            context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },
+          });
+          renderTextUnderline(offCtx, layer, fallbackConfig);
+        }
+        Promise.resolve().then(() => CanvasDevice.release(textOnlyCanvas));
+      } else {
+        renderTextEffectToCanvas(offCtx, {
+          source: fallbackSceneDoc,
+          context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },
+        });
+        renderTextUnderline(offCtx, layer, fallbackConfig);
+      }
+    }
+    // Draw the unscaled offscreen canvas scaled down to the preview resolution.
+    // Source rect: full unscaled canvas
+    // Dest rect: scaled position and size for preview quality
+    ctx.drawImage(
+      offscreen,
+      0,
+      0,
+      unscaledOffW,
+      unscaledOffH, // source
+      -width / 2 - effectPaddingX,
+      -height / 2 - effectPaddingY,
+      offW,
+      offH, // destination
+    );
+  }
+
+  // Defer canvas release to prevent premature reuse during rapid state transitions
+  // Use microtask to ensure GPU has finished compositing
+  Promise.resolve().then(() => {
+    CanvasDevice.release(offscreen);
+  });
+}
+
+/**
+ * Measure text dimensions (for layout validation).
+ */
+export function measureText(text: string, fontFamily: string, fontSize: number, fontWeight: string | number, fontStyle: string): { width: number; height: number } {
+  // Create temporary canvas for measurement
+  const canvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(1, 1) : document.createElement("canvas");
+
+  const ctx = canvas.getContext("2d") as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+  if (!ctx) {
+    return { width: 0, height: 0 };
+  }
+
+  const weight = typeof fontWeight === "number" ? fontWeight : fontWeight === "bold" ? "700" : "400";
+  ctx.font = `${fontStyle} ${weight} ${fontSize}px ${fontFamily}`;
+
+  const metrics = ctx.measureText(text);
+
+  return {
+    width: metrics.width,
+    height: fontSize * 1.2, // Approximate height
+  };
+}

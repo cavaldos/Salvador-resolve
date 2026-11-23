@@ -1,0 +1,17 @@
+--- a/src/components/editor/preview/nativeTextPreview.ts
++++ b/src/components/editor/preview/nativeTextPreview.ts
+@@ -503,13 +503,7 @@
+         pivotY: presentation.pivotY,
+         selectionBoundsTight: false,
+       });
+-      ctx.drawImage(
+-        bitmap.source,
+-        presentation.drawX - presentation.pivotX,
+-        presentation.drawY - presentation.pivotY,
+-        presentation.drawWidth,
+-        presentation.drawHeight,
+-      );
++      // MUTATION: drop drawImage for text layers
+       ctx.restore();
+       const paintMs = performance.now() - paintStartedAt;
+       if (asset.timing) {

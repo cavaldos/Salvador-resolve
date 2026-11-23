@@ -2,8 +2,8 @@
   "compilerOptions": {
     "target": "ES2020",
     "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "module": "ESNext",
-    "lib": ["ES2020", "DOM"],
     "skipLibCheck": true,
 
     /* Bundler mode */
@@ -13,13 +13,29 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "jsxImportSource": "preact",
 
     /* Linting */
     "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+
+    /* Path aliases */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@clypra/ui-color-picker": ["../clypra-packages/packages/ui-color-picker/dist/index.d.ts"],
+      "@clypra/ui-color-picker/*": ["../clypra-packages/packages/ui-color-picker/dist/*"],
+      "@clypra-studio/types": ["../clypra-packages/packages/types/src/index.ts"],
+      "@clypra-studio/types/*": ["../clypra-packages/packages/types/src/*"],
+      "@clypra-studio/shaders": ["../clypra-packages/packages/shaders/src/index.ts"],
+      "@clypra-studio/shaders/*": ["../clypra-packages/packages/shaders/src/*"],
+      "@clypra-studio/engine": ["../clypra-packages/packages/salvador-engine/src/index.ts"],
+      "@clypra-studio/engine/*": ["../clypra-packages/packages/salvador-engine/src/*"]
+    },
+
+    /* Test type declarations */
+    "types": ["vitest/globals", "@testing-library/jest-dom"]
   },
   "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]

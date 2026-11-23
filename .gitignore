@@ -1,78 +1,62 @@
-# ---------------------------------------------------------------- logs ------
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+# Rust/Cargo
+target/
+Cargo.lock
+**/*.rs.bk
+/dist
 
-# ------------------------------------------------------------ dependencies --
-node_modules
-dist
-dist-ssr
-*.local
+# Dependencies
+node_modules/
 
-# ----------------------------------------------- secrets & local env files --
-# Real credentials never get committed. .env.example is tracked on purpose:
-# it is the template, it holds no values.
-.env
-.env.*
-!.env.example
-
-# ------------------------------------------------------------ Tauri build --
-# Tauri updater signing keys — NEVER commit these. Losing the private key
-# permanently breaks updates; leaking it lets anyone ship a fake update.
-.secrets/
-*.key
-*.key.pub
-
+# Tauri-specific
 src-tauri/target/
+src-tauri/ffmpeg-static/
 
-# ------------------------------------- coding agent state (local only) ------
-# Session transcripts, task lists, caches and per-machine config that coding
-# agents write into the working tree. None of it is project source.
-# (A `#` is only a comment at the START of a line — trailing text after a
-# pattern becomes part of the pattern, which silently matches nothing.)
+# Logs and temp files
+*.log
+*.tmp
+src-tauri/temp/
 
-# pi: session state and task lists
-.pi/
-# opencode: installed deps and sessions
-.opencode/
-# herdr: terminal multiplexer state
-.herdr/
-# Claude Code
-.claude/
-# Cursor
-.cursor/
-# Codex
-.codex/
-# Gemini CLI
-.gemini/
-# MCP server config (usually local paths and tokens)
-.mcp.json
+# Scratch/experimental files
+scratch/
 
-# aider keeps its history and caches as loose files, not a directory
-.aider.chat.history.md
-.aider.input.history
-.aider.tags.cache.v*/
-.aider.conf.yml
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 
-# Scratch files the agents leave behind
-.agent/
-*-session.json
-
-# NOTE: AGENTS.md, AGENTS.override.md and CLAUDE.md are deliberately NOT
-# ignored. They are project documentation meant to be committed, so the whole
-# team and any CI agent read the same instructions.
-
-# ----------------------------------------- editor directories and files ----
-.vscode/*
-!.vscode/extensions.json
-.idea
+# System files
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+Thumbs.db
+
+# Environment
+.env
+.env.local
+*.env.*
+
+/fixtures/*
+!/fixtures/captions/
+!/fixtures/captions/dtw-ground-truth/
+!/fixtures/captions/dtw-ground-truth/labels.json
+fixtures/captions/dtw-ground-truth/*.wav
+!tests/fixtures/roundtrip/
+tests/fixtures/*.mp4
+# Generated test-output images written by Rust effect-compositing tests at runtime
+tests/fixtures/validation_output/
+
+# Windows reserved device name (cannot be deleted)
+/nul
+
+# Benchmark results
+scripts/benchmarks/results/*
+!scripts/benchmarks/results/baselines/
+
+# Verification and test results
+test-results/
+reports/
+
+# FFmpeg sidecars provisioned by scripts/setup-sidecars.sh / ensure-sidecars.mjs
+src-tauri/bin/*
+!src-tauri/bin/README.md
+# Playwright output
+test-results/

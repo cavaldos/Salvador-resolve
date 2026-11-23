@@ -1,0 +1,10 @@
+diff --git a/src/core/playback/PlaybackClock.ts b/src/core/playback/PlaybackClock.ts
+--- a/src/core/playback/PlaybackClock.ts
++++ b/src/core/playback/PlaybackClock.ts
+@@ -729,5 +729,5 @@ export class PlaybackClock {
+     this._isSeeking = false;
+     this._consecutiveBackwardPollCount = 0;
+     resetPlayheadPaintTracking();
+-    this._nativeClockPosition = null; // Clear native clock sample so no stale pre-pause timestamps survive
++    // this._nativeClockPosition = null; // MUTATION: stale native clock survives pause
+     this._hasRealNativeClockSample = false;

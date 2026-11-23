@@ -1,0 +1,11 @@
+diff --git a/src/core/evaluation/evaluator.ts b/src/core/evaluation/evaluator.ts
+--- a/src/core/evaluation/evaluator.ts
++++ b/src/core/evaluation/evaluator.ts
+@@ -696,6 +696,6 @@ export function evaluateTimelineScene(
+         ...(motionOutProgress !== undefined ? { motionOutProgress } : {}),
+       };
+
+-      visualLayers.push(textLayer);
++      // visualLayers.push(textLayer); // MUTATION: text layer is dropped from the evaluated scene
+
+       continue;

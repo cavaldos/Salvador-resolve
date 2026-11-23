@@ -1,47 +1,78 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "tauri-template",
+  "productName": "Salvador Resolve",
   "version": "0.1.0",
-  "identifier": "com.bourbon.tauri-template",
+  "identifier": "com.salvadorresolve.app",
   "build": {
-    "beforeDevCommand": "yarn dev",
+    "beforeDevCommand": "npm run ensure:sidecars && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "yarn build",
+    "beforeBuildCommand": "npm run ensure:sidecars && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
     "windows": [
       {
-        "title": "tauri-template",
-        "width": 800,
-        "height": 600
+        "label": "main",
+        "title": "",
+        "width": 1300,
+        "height": 720,
+        "minWidth": 1300,
+        "minHeight": 720,
+        "dragDropEnabled": false,
+        "decorations": true,
+        "transparent": false,
+        "shadow": true,
+        "titleBarStyle": "Overlay",
+        "devtools": true
       }
     ],
+    "macOSPrivateApi": true,
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": {
+          "allow": [
+            "$HOME/**/*",
+            "$DESKTOP/**/*",
+            "$DOCUMENT/**/*",
+            "$DOWNLOAD/**/*",
+            "$VIDEO/**/*",
+            "$PUBLIC/**/*",
+            "$APPDATA/**/*",
+            "$RESOURCE/**/*",
+            "/Volumes/**/*",
+            "$APPCACHE/**/*"
+          ]
+        }
+      }
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "AIEraDev",
     "createUpdaterArtifacts": true,
+    "externalBin": [
+      "bin/ffmpeg",
+      "bin/ffprobe"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "infoPlist": "Info.plist",
+      "entitlements": "Entitlements.plist"
+    }
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE4QzFERUVDRjEyMDUyMzkKUldRNVVpRHg3TjdCR052M21Sdi9HbFQ3WTljazI3aDZodjZkdTg5VUh5RlJDZllCMk9RQ1U0dG8K",
-      "endpoints": [
-        "https://github.com/cavaldos/tauri/releases/latest/download/latest.json"
-      ],
-      "windows": {
-        "installMode": "passive"
-      }
+      "endpoints": [],
+      "pubkey": ""
     }
   }
 }

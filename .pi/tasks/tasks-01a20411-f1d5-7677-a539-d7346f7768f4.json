@@ -1,0 +1,16 @@
+{
+  "nextId": 2,
+  "tasks": [
+    {
+      "id": "1",
+      "subject": "Cài và kiểm tra bộ skill UI cho dự án",
+      "description": "Cài frontend-design, web-design-guidelines, webapp-testing vào .agents/skills; kiểm tra nội dung, license, tài nguyên đi kèm và lưu nguồn/commit. Không sửa ứng dụng hay dependency.",
+      "status": "completed",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1795364870000,
+      "updatedAt": 1795365057969
+    }
+  ]
+}

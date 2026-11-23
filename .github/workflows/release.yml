@@ -1,120 +1,377 @@
-name: release
+name: "Publish Release"
 
-# Pushing a vX.Y.Z tag is the whole release process: `script/release.sh vX.Y.Z`
-# creates and pushes the tag, this workflow does the rest.
 on:
   push:
-    tags: ["v*"]
-
-permissions:
-  contents: write
-
-# A re-pushed tag (script/release.sh force-moves it) must not run twice.
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+    tags:
+      - "v*"
+  workflow_dispatch:
 
 jobs:
-  # A Tauri app cannot be cross-compiled for another OS: webkit/gtk and the
-  # Windows and macOS bundlers only work natively. So every target gets its
-  # own runner of the matching OS.
-  #
-  # All four jobs upload into the same DRAFT release. tauri-action merges the
-  # `platforms` map of the existing latest.json on every upload, so the draft
-  # accumulates entries for all targets; the publish job flips it live only
-  # after every build succeeded, so a half-built release is never visible.
-  build:
+  publish-tauri:
+    name: Build & Release (${{ matrix.platform }} - ${{ matrix.target }})
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
-            name: macOS (Apple Silicon)
-            args: --target aarch64-apple-darwin
-          - platform: macos-15-intel
-            name: macOS (Intel)
-            args: --target x86_64-apple-darwin
-          - platform: ubuntu-latest
-            name: Linux (x86_64)
-            args: --target x86_64-unknown-linux-gnu
-          - platform: windows-latest
-            name: Windows (x86_64)
-            args: --target x86_64-pc-windows-msvc
+          # macOS Apple Silicon (.dmg)
+          - platform: "macos-latest"
+            target: "aarch64-apple-darwin"
+            vcpkg_triplet: ""
+            args: "--target aarch64-apple-darwin"
+
+          # macOS Intel (.dmg)
+          - platform: "macos-15-intel"
+            target: "x86_64-apple-darwin"
+            vcpkg_triplet: ""
+            args: "--target x86_64-apple-darwin"
+
+          # Windows x64 (.exe, .msi)
+          - platform: "windows-latest"
+            target: "x86_64-pc-windows-msvc"
+            vcpkg_triplet: "x64-windows-static-md"
+            args: ""
+
+          # Linux x64 (.deb, .AppImage, .tar.gz)
+          - platform: "ubuntu-22.04"
+            target: "x86_64-unknown-linux-gnu"
+            vcpkg_triplet: ""
+            args: ""
+
+          # Linux ARM64 (.deb, .AppImage, .tar.gz)
+          - platform: "ubuntu-24.04-arm"
+            target: "aarch64-unknown-linux-gnu"
+            vcpkg_triplet: ""
+            args: "--target aarch64-unknown-linux-gnu"
+
     runs-on: ${{ matrix.platform }}
-    name: ${{ matrix.name }}
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: yarn
-
-      - uses: dtolnay/rust-toolchain@v1
-        with:
-          toolchain: stable
-
-      - uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-          key: ${{ matrix.platform }}
-
-      # Tauri v2 Linux system dependencies + the bundlers the AppImage/deb/rpm
-      # targets need. desktop-file-utils is required by the deb target and rpm
-      # by the rpm target, both of which are in the `all` bundle targets.
-      - name: install Tauri system dependencies
+      # ── Linux ──────────────────────────────────────────────────────────────
+      - name: Install System Dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev build-essential curl wget file \
-            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
-            desktop-file-utils rpm
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev patchelf xdg-utils \
+            libva-dev \
+            build-essential pkg-config libssl-dev \
+            libclang-dev libxdo-dev cmake nasm \
+            libasound2-dev zlib1g-dev
 
-      - name: install frontend dependencies
-        run: yarn install --frozen-lockfile
+      - name: Cache Static FFmpeg (Linux)
+        if: runner.os == 'Linux'
+        id: cache-ffmpeg-linux
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ffmpeg-static
+          key: ffmpeg-8.0-linux-static-v5-${{ matrix.target }}
 
-      - name: build, sign and upload
-        uses: tauri-apps/tauri-action@v1
+      - name: Build Static FFmpeg (Linux)
+        if: runner.os == 'Linux' && steps.cache-ffmpeg-linux.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/ffmpeg-src
+          curl -sL https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz | tar -xJ --strip-components=1 -C /tmp/ffmpeg-src
+          cd /tmp/ffmpeg-src
+          ./configure \
+            --prefix="${{ runner.temp }}/ffmpeg-static" \
+            --enable-static \
+            --disable-shared \
+            --enable-pic \
+            --disable-programs \
+            --disable-doc \
+            --disable-network \
+            --disable-autodetect \
+            --disable-indevs \
+            --disable-outdevs \
+            --enable-zlib
+          make -j$(nproc) install
+          rm -rf /tmp/ffmpeg-src
+
+      - name: Configure FFmpeg Environment (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "FFMPEG_DIR=${{ runner.temp }}/ffmpeg-static" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=${{ runner.temp }}/ffmpeg-static/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> $GITHUB_ENV
+
+      - name: Build Glibc / C++ Compatibility Shim (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p ${{ runner.temp }}/compat
+          gcc -c -fPIC scripts/glibc_compat.c -o ${{ runner.temp }}/compat/glibc_compat.o
+          echo "RUSTFLAGS=-C link-arg=${{ runner.temp }}/compat/glibc_compat.o ${RUSTFLAGS:-}" >> $GITHUB_ENV
+
+      # ── macOS ──────────────────────────────────────────────────────────────
+      # whisper-rs-sys builds ggml via cmake. The only reliable way to set
+      # the deployment target for cmake sub-builds inside cargo is via the
+      # SDKROOT + MACOSX_DEPLOYMENT_TARGET env pair AND setting
+      # CMAKE_OSX_DEPLOYMENT_TARGET through CARGO_BUILD_TARGET_DIR cmake
+      # passthrough. We use a .cargo/config.toml [env] block (committed) to
+      # guarantee cmake sees the flag, and also set it here for safety.
+      - name: Install System Dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake pkg-config nasm
+
+      - name: Cache Static FFmpeg (macOS)
+        if: runner.os == 'macOS'
+        id: cache-ffmpeg-macos
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ffmpeg-static
+          key: ffmpeg-8.0-darwin-static-v2-${{ matrix.target }}
+
+      - name: Build Static FFmpeg (macOS)
+        if: runner.os == 'macOS' && steps.cache-ffmpeg-macos.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/ffmpeg-src
+          curl -sL https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz | tar -xJ --strip-components=1 -C /tmp/ffmpeg-src
+          cd /tmp/ffmpeg-src
+          ./configure \
+            --prefix="${{ runner.temp }}/ffmpeg-static" \
+            --enable-static \
+            --disable-shared \
+            --enable-pic \
+            --disable-programs \
+            --disable-doc \
+            --disable-network \
+            --disable-autodetect \
+            --disable-indevs \
+            --disable-outdevs \
+            --enable-videotoolbox \
+            --enable-audiotoolbox \
+            --disable-xlib \
+            --disable-libxcb \
+            --disable-indev=xcbgrab
+          make -j$(sysctl -n hw.ncpu) install
+          rm -rf /tmp/ffmpeg-src
+
+      - name: Configure FFmpeg Environment (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          echo "FFMPEG_DIR=${{ runner.temp }}/ffmpeg-static" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=${{ runner.temp }}/ffmpeg-static/lib/pkgconfig" >> $GITHUB_ENV
+          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> $GITHUB_ENV
+          echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> $GITHUB_ENV
+          echo "CMAKE_OSX_DEPLOYMENT_TARGET=11.0" >> $GITHUB_ENV
+
+      # ── Windows ────────────────────────────────────────────────────────────
+      # LLVM is already available on windows-latest at C:\Program Files\LLVM
+      # (installed by the runner image). Just set LIBCLANG_PATH.
+      - name: Set LIBCLANG_PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $llvm = "C:\Program Files\LLVM\bin"
+          if (Test-Path $llvm) {
+            echo "LIBCLANG_PATH=$llvm" >> $env:GITHUB_ENV
+            Write-Host "Using runner LLVM at $llvm"
+          } else {
+            choco install llvm -y --no-progress
+            echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+          }
+
+      - name: Cache FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        id: cache-ffmpeg-windows
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed\x64-windows-static-md
+          key: ffmpeg-vcpkg-x64-windows-static-md-v1
+
+      - name: Install FFmpeg (Windows)
+        if: runner.os == 'Windows' && steps.cache-ffmpeg-windows.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          cd C:\vcpkg
+          git pull --quiet
+          vcpkg install ffmpeg[core,avcodec,avdevice,avfilter,avformat,swresample,swscale]:${{ matrix.vcpkg_triplet }}
+
+      - name: Configure FFmpeg Environment (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          echo "FFMPEG_DIR=C:/vcpkg/installed/${{ matrix.vcpkg_triplet }}" >> $env:GITHUB_ENV
+          echo "PKG_CONFIG_PATH=C:/vcpkg/installed/${{ matrix.vcpkg_triplet }}/lib/pkgconfig" >> $env:GITHUB_ENV
+          echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+          echo "VCPKGRS_TRIPLET=${{ matrix.vcpkg_triplet }}" >> $env:GITHUB_ENV
+
+      # ── Toolchain ──────────────────────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Configure MSVC environment for CMake
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Pin MSVC compiler for CMake
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $cl = (Get-Command cl.exe -ErrorAction Stop).Source
+          "CMAKE_C_COMPILER=$cl" >> $env:GITHUB_ENV
+          "CMAKE_CXX_COMPILER=$cl" >> $env:GITHUB_ENV
+          "CMAKE_ASM_COMPILER=$cl" >> $env:GITHUB_ENV
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # ── Frontend ───────────────────────────────────────────────────────────
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      # ── Static FFmpeg Sidecars ─────────────────────────────────────────────
+      # Ensures authentic, standalone GPL FFmpeg and FFprobe binaries with
+      # hardware acceleration and software codecs (x264, x265, prores, vp9)
+      # are cryptographically verified against pinned SHA-256 digests and
+      # bundled into release artifacts (replaces development stub wrappers).
+      - name: Setup Verified Static FFmpeg Sidecars (macOS / Linux)
+        if: runner.os != 'Windows'
+        run: bash scripts/setup-sidecars.sh --target ${{ matrix.target }} --force
+
+      - name: Setup Verified Static FFmpeg Sidecars (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\scripts\setup-sidecars.ps1 -Target ${{ matrix.target }} -Force
+
+      - name: Verify bundled media runtime
+        run: node scripts/verify-sidecars.mjs --target ${{ matrix.target }}
+
+      - name: Run Vitest Suite
+        run: npx vitest run
+
+      - name: Run Cargo Test Suite
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      # ── macOS code-signing setup ───────────────────────────────────────────
+      # Imports the Developer ID Application certificate into a temporary
+      # keychain so codesign and the Tauri bundler can find it.
+      - name: Import Apple Developer ID Certificate (macOS)
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          # Decode the base64-encoded .p12 certificate
+          echo "$APPLE_CERTIFICATE" | base64 --decode > $RUNNER_TEMP/certificate.p12
+
+          # Create a temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import the certificate
+          security import "$RUNNER_TEMP/certificate.p12" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Make it the default so codesign picks it up
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+
+      # ── Release ────────────────────────────────────────────────────────────
+      - name: Build & Publish Release
+        uses: tauri-apps/tauri-action@action-v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Signing the updater artifacts; the public half is committed in
-          # src-tauri/tauri.conf.json under plugins.updater.pubkey.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS code signing + notarization
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: ${{ github.ref_name }}
-          releaseDraft: true
+          tagName: v__VERSION__
+          releaseName: "Salvador Resolve v__VERSION__"
+          releaseBody: "Automated multi-platform release bundle — macOS (arm64, x64), Windows (x64, arm64), Linux (x64, arm64)."
+          releaseDraft: false
           prerelease: false
-          # Generates the signed latest.json updater manifest and merges this
-          # target's platform entry into the draft release's copy.
-          uploadUpdaterJson: true
-          generateReleaseNotes: true
           args: ${{ matrix.args }}
+          retryAttempts: 3
 
-  # Only reached when all four builds succeeded: flip the draft to published,
-  # which is what makes /releases/latest/download/latest.json resolve for the
-  # updater endpoint configured in tauri.conf.json.
-  publish:
-    needs: build
+  sync-updater-manifests:
+    name: Sync latest.json and updater.json
+    needs: publish-tauri
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - name: Publish the draft release
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Duplicate latest.json as updater.json and convert to Direct Public URLs
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
-          # A draft release cannot be fetched by tag, so it has to be looked up
-          # in the (paginated) release list. `// ""` turns "no match" (jq
-          # null) into an empty string for the check below.
-          id="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
-            --jq "[.[] | select(.draft == true and .tag_name == \"${TAG}\")][0].id // \"\"")"
-          if [ -z "$id" ]; then
-            echo "error: no draft release found for tag ${TAG}" >&2
-            exit 1
+          TAG_NAME="${{ github.ref_name }}"
+          if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "main" ] || [ "$TAG_NAME" = "master" ]; then
+            TAG_NAME=$(gh release view --json tagName -q .tagName --repo ${{ github.repository }})
           fi
-          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${id}" \
-            -f draft=false -f prerelease=false >/dev/null
-          echo "published ${TAG} (release id ${id})"
+          echo "Syncing manifests for release: $TAG_NAME"
+          gh release download "$TAG_NAME" -p "latest.json" --repo ${{ github.repository }} --dir /tmp
+
+          # Map GitHub API asset URLs to public direct download URLs
+          node -e '
+            const fs = require("fs");
+            const { execSync } = require("child_process");
+            const repo = process.env.GITHUB_REPOSITORY || "${{ github.repository }}";
+            const tag = "'"$TAG_NAME"'";
+            const releaseInfo = JSON.parse(execSync(`gh release view "${tag}" --json assets --repo "${repo}"`).toString());
+            const assetMap = new Map();
+            for (const asset of releaseInfo.assets) {
+              if (asset.apiUrl) {
+                assetMap.set(asset.apiUrl, asset.url);
+              }
+              if (asset.id) {
+                assetMap.set(`https://api.github.com/repos/${repo}/releases/assets/${asset.id}`, asset.url);
+                assetMap.set(`https://api.github.com/repos/${{ github.repository }}/releases/assets/${asset.id}`, asset.url);
+              }
+            }
+
+            const manifest = JSON.parse(fs.readFileSync("/tmp/latest.json", "utf8"));
+            if (manifest.platforms) {
+              for (const [platform, data] of Object.entries(manifest.platforms)) {
+                if (data.url && data.url.includes("api.github.com")) {
+                  const directUrl = assetMap.get(data.url);
+                  if (directUrl) {
+                    console.log(`Rewriting ${platform} URL from ${data.url} to ${directUrl}`);
+                    data.url = directUrl;
+                  }
+                }
+              }
+            }
+
+            const updatedJson = JSON.stringify(manifest, null, 2);
+            fs.writeFileSync("/tmp/latest.json", updatedJson);
+            fs.writeFileSync("/tmp/updater.json", updatedJson);
+          '
+
+          gh release upload "$TAG_NAME" /tmp/latest.json /tmp/updater.json --clobber --repo ${{ github.repository }}
+          echo "Successfully converted and published both latest.json and updater.json with direct public download URLs!"
+

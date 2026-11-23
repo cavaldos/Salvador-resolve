@@ -1,0 +1,175 @@
+name: "Packaged Staging & Sidecar Validation"
+
+# Automated Desktop Staging & Distribution Smoke Test
+# Validates frontend production bundle chunks, Tauri manifests, MSIX staging,
+# and clean-PATH sidecar export resolution across macOS and Windows.
+#
+# Note: This workflow runs `cargo check` and packaging smoke checks without
+# launching the GUI application. Hardware/software GPU shader rendering is
+# verified separately in `native-golden.yml`.
+
+on:
+  schedule:
+    # Run weekly on Sunday at 03:00 UTC
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src-tauri/**"
+      - "scripts/smoke-test-packaged-app.mjs"
+      - ".github/workflows/desktop-e2e.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-e2e:
+    name: Desktop Staging (${{ matrix.platform.name }})
+    runs-on: ${{ matrix.platform.os }}
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: "macOS Staging & Sidecar"
+            os: macos-latest
+            target: "aarch64-apple-darwin"
+
+          - name: "Windows Staging & Sidecar"
+            os: windows-latest
+            target: "x86_64-pc-windows-msvc"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.target }}
+
+      - name: Configure MSVC environment for CMake
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Pin MSVC compiler for CMake
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $cl = (Get-Command cl.exe -ErrorAction Stop).Source
+          "CMAKE_C_COMPILER=$cl" >> $env:GITHUB_ENV
+          "CMAKE_CXX_COMPILER=$cl" >> $env:GITHUB_ENV
+          "CMAKE_ASM_COMPILER=$cl" >> $env:GITHUB_ENV
+
+      # ── macOS Dependencies & FFmpeg ─────────────────────────────────────────
+      - name: Install System Dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake pkg-config nasm
+
+      - name: Cache Static FFmpeg (macOS)
+        if: runner.os == 'macOS'
+        id: cache-ffmpeg-macos
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ffmpeg-static
+          key: ffmpeg-8.0-darwin-static-v2-${{ matrix.platform.target }}
+
+      - name: Build Static FFmpeg (macOS)
+        if: runner.os == 'macOS' && steps.cache-ffmpeg-macos.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/ffmpeg-src
+          curl -sL https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz | tar -xJ --strip-components=1 -C /tmp/ffmpeg-src
+          cd /tmp/ffmpeg-src
+          ./configure \
+            --prefix="${{ runner.temp }}/ffmpeg-static" \
+            --enable-static \
+            --disable-shared \
+            --enable-pic \
+            --disable-programs \
+            --disable-doc \
+            --disable-network \
+            --disable-autodetect \
+            --disable-indevs \
+            --disable-outdevs \
+            --enable-videotoolbox \
+            --enable-audiotoolbox \
+            --disable-xlib \
+            --disable-libxcb \
+            --disable-indev=xcbgrab
+          make -j$(sysctl -n hw.ncpu) install
+          rm -rf /tmp/ffmpeg-src
+
+      - name: Configure FFmpeg Environment (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          echo "FFMPEG_DIR=${{ runner.temp }}/ffmpeg-static" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=${{ runner.temp }}/ffmpeg-static/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> $GITHUB_ENV
+          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> $GITHUB_ENV
+          echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> $GITHUB_ENV
+          echo "CMAKE_OSX_DEPLOYMENT_TARGET=11.0" >> $GITHUB_ENV
+
+      # ── Windows Dependencies & FFmpeg ───────────────────────────────────────
+      - name: Configure Windows Environment
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $llvm = "C:\Program Files\LLVM\bin"
+          if (Test-Path $llvm) {
+            echo "LIBCLANG_PATH=$llvm" >> $env:GITHUB_ENV
+          } else {
+            choco install llvm -y --no-progress
+            echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+          }
+
+      - name: Cache FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        id: cache-ffmpeg-windows
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed\x64-windows-static-md
+          key: ffmpeg-vcpkg-x64-windows-static-md-v1
+
+      - name: Install FFmpeg (Windows)
+        if: runner.os == 'Windows' && steps.cache-ffmpeg-windows.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          cd C:\vcpkg
+          git pull --quiet
+          vcpkg install ffmpeg[core,avcodec,avdevice,avfilter,avformat,swresample,swscale]:x64-windows-static-md
+
+      - name: Configure FFmpeg Environment (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          echo "FFMPEG_DIR=C:/vcpkg/installed/x64-windows-static-md" >> $env:GITHUB_ENV
+          echo "PKG_CONFIG_PATH=C:/vcpkg/installed/x64-windows-static-md/lib/pkgconfig" >> $env:GITHUB_ENV
+          echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+          echo "VCPKGRS_TRIPLET=x64-windows-static-md" >> $env:GITHUB_ENV
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # ── Production Build & Frontend Smoke ───────────────────────────────────
+      - name: Build Frontend Production Assets
+        run: npm run build
+
+      - name: Validate Packaged Bundle Integrity
+        run: npm run smoke:bundle
+
+      # ── Native Backend Verification ─────────────────────────────────────────
+      - name: Verify Native Desktop Compilation (Rust)
+        run: cargo check --manifest-path src-tauri/Cargo.toml

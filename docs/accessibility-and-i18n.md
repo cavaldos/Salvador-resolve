@@ -1,0 +1,39 @@
+# Accessibility & Internationalization Architecture
+
+## Internationalization (i18n) Scope Statement
+
+### Stated Language Policy
+- **Primary Source Language**: English (`en`) is the canonical authoring language for all user interface strings, command labels, settings, error messages, and documentation.
+- **First-Party Supported Locales**:
+  - English (`en`)
+  - Russian (`ru`)
+  - Spanish (`es`)
+  - Japanese (`ja`)
+  - German (`de`)
+  - French (`fr`)
+  - Korean (`ko`)
+  - Traditional Chinese (`zh-TW`)
+  - Simplified Chinese (`zh-CN`)
+- **Implementation**: Managed centrally via `src/i18n/I18nProvider.tsx` and modular locale dictionaries in `src/i18n/locales/`.
+- **Persistence**: User interface language selection is stored in `localStorage` under `salvador.language` and hydrated immediately upon application mount.
+- **Scope Decision**: Salvador Resolve provides first-party localization across major creative desktop editor userbases (English, Russian, Spanish, Japanese, German, French, Korean, Traditional Chinese, and Simplified Chinese). Additional languages are supported via community locale dictionaries.
+
+---
+
+## Accessibility (A11y) Standards
+
+### Keyboard Navigation (WCAG 2.1 AA Compliant)
+1. **Timeline Clip Traversal**:
+   - `Tab` / `Shift + Tab`: Moves focus sequentially through all clips across unlocked timeline tracks. Locked tracks are automatically skipped (`tabIndex={-1}`).
+   - Visible Focus Indicator: High-contrast accent ring (`focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:outline-none`).
+2. **Keyboard Interaction Controls**:
+   - `Enter` / `Space`: Selects focused clip.
+   - `Shift + Enter` / `Shift + Space` (or `Cmd`/`Ctrl`): Toggles multi-clip selection.
+   - `Escape`: Deselects active clip selection.
+   - `ContextMenu` / `Shift + F10`: Opens contextual menu at the visual center of the clip.
+   - `Alt + ArrowLeft` / `Alt + ArrowRight`: Nudges clip start time left/right by 1 frame (1/30s).
+   - `Alt + Shift + ArrowLeft` / `Alt + Shift + ArrowRight`: Nudges clip start time left/right by 1 second (30 frames).
+3. **Screen Reader Compatibility**:
+   - Explicit `role="button"` on interactive elements.
+   - Comprehensive `aria-label` declaring clip name, track ID, start time, duration, locked state, selection state, and offline status.
+   - Dynamic attributes: `aria-selected`, `aria-disabled`, `aria-haspopup="menu"`.

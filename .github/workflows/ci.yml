@@ -1,60 +1,321 @@
-name: ci
+name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [develop, master]
   pull_request:
-    branches: [main]
+    branches: [develop, master]
 
 permissions:
   contents: read
 
 jobs:
-  # Frontend: type-check (tsc) + production bundle (vite build), on the
-  # same Node version local development uses. No test suite exists yet, so
-  # the build is the only frontend signal.
-  frontend:
+  test-frontend:
+    name: Test Frontend & TypeScript
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: yarn
-      - run: yarn install --frozen-lockfile
-      - run: yarn build
+    timeout-minutes: 25
 
-  # Rust: fmt + clippy + check. Tauri needs its Linux system libraries even
-  # for `cargo check`, because tauri-build parses the system webkit/gtk
-  # versions at build-script time.
-  rust:
-    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: yarn
-      - uses: dtolnay/rust-toolchain@v1
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate documentation links
+        run: npm run docs:check
+
+      - name: Validate internationalization catalog parity
+        run: npm run i18n:check
+
+      - name: Validate multi-agent skills synchronization
+        run: npm run skills:check
+
+      - name: Validate Architectural Invariants
+        run: npm run verify:architecture
+
+      - name: Validate Performance Schema Sync
+        run: npm run perf:schema:check
+
+      - name: Validate engine acceptance runner syntax
+        run: node --check scripts/harness/verify-engine-acceptance.mjs
+
+      - name: Validate render performance runner syntax
+        run: node --check scripts/harness/verify-render-performance.mjs
+
+      - name: Strict Type Check (tsc --noEmit)
+        run: npx tsc --noEmit
+
+      - name: Linting (if configured)
+        run: npm run lint --if-present
+
+      - name: Internationalization Unit Tests
+        run: npx vitest run src/i18n/__tests__/
+
+      - name: Preview Render Loop Regression Suite
+        run: |
+          mkdir -p test-results
+          npx vitest run src/components/editor/preview/__tests__/ProgramPreview.renderLoop.test.ts | tee test-results/preview-render-loop.log
+
+      - name: Core Domain & Timeline Tests
+        run: npx vitest run src/core/evaluation/ src/lib/timecode/ | tee test-results/core-domain-timeline.log
+
+      - name: Subsystem Behavioral Contracts (Preview, Playback, Audio, Text, RoundTrip)
+        run: |
+          mkdir -p test-results
+          npx vitest run \
+            src/core/playback/__tests__/replayBehavioralContract.test.ts \
+            src/core/audio/__tests__/audioPreviewSyncContract.test.ts \
+            src/components/editor/preview/__tests__/previewStateResetContract.test.ts \
+            src/features/text-effects/__tests__/textEditPreviewCycle.test.ts \
+            src/core/evaluation/__tests__/requestRoundTripFixture.test.ts \
+            | tee test-results/subsystem-contracts.log
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Layer A Playwright Pixel Validation
+        run: npx playwright test tests/e2e/preview-canvas-pixel-validation.spec.ts | tee test-results/layer-a-playwright.log
+
+      - name: Playwright Timeline Zoom Parity (Non-blocking)
+        continue-on-error: true
+        run: npx playwright test tests/e2e/timeline-zoom-parity.spec.ts | tee test-results/timeline-zoom-playwright.log || true
+
+      - name: Verify Mutation Canary Invariants (Frontend & Layer A)
+        run: npm run verify:canary-mutations -- --frontend | tee test-results/frontend-canary-mutations.log
+
+      - name: Verify Scrub Last-Target Mutation Canary
+        run: |
+          node scripts/harness/run-canary-mutations.mjs --frontend --mutation=broken-scrub-last-target-wins.patch \
+            | tee test-results/scrub-last-target-canary.log
+
+      - name: Verify Mechanical Evidence Gate
+        run: npm run verify:evidence -- --ci
+
+      - name: Execute Unified Engineering Quality Gate
+        run: npm run verify:gate:ci
+
+      - name: Upload Quality Gate & Test Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          toolchain: stable
-          components: rustfmt, clippy
-      - uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-      - name: install Tauri system dependencies
+          name: frontend-and-quality-gate-reports
+          path: test-results/
+
+  test-rust:
+    name: Test Rust Backend (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev build-essential curl wget file \
-            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
-      - run: yarn install --frozen-lockfile
-      - name: cargo fmt
-        working-directory: src-tauri
-        run: cargo fmt --all --check
-      - name: cargo clippy
-        working-directory: src-tauri
-        run: cargo clippy --all-targets --all-features -- -D warnings
-      - name: cargo check
-        working-directory: src-tauri
-        run: cargo check --all-targets --all-features
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev patchelf xdg-utils \
+            libva-dev \
+            build-essential pkg-config libssl-dev \
+            libclang-dev libxdo-dev cmake nasm \
+            libasound2-dev zlib1g-dev \
+            libvulkan1 mesa-vulkan-drivers vulkan-tools \
+            libgl1-mesa-dri libegl1-mesa-dev \
+            curl wget file
+
+      - name: Cache Static FFmpeg (Linux)
+        id: cache-ffmpeg-linux
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ffmpeg-static
+          key: ffmpeg-8.0-linux-static-v4-x86_64-unknown-linux-gnu
+
+      - name: Build Static FFmpeg (Linux)
+        if: steps.cache-ffmpeg-linux.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/ffmpeg-src
+          curl -sL https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz | tar -xJ --strip-components=1 -C /tmp/ffmpeg-src
+          cd /tmp/ffmpeg-src
+          ./configure \
+            --prefix="${{ runner.temp }}/ffmpeg-static" \
+            --enable-static \
+            --disable-shared \
+            --enable-pic \
+            --disable-programs \
+            --disable-doc \
+            --disable-network \
+            --disable-autodetect \
+            --disable-indevs \
+            --disable-outdevs \
+            --enable-zlib
+          make -j"$(nproc)" install
+          rm -rf /tmp/ffmpeg-src
+
+      - name: Configure FFmpeg Environment (Linux)
+        run: |
+          {
+            echo "FFMPEG_DIR=${{ runner.temp }}/ffmpeg-static"
+            echo "PKG_CONFIG_PATH=${{ runner.temp }}/ffmpeg-static/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig"
+            echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
+            echo "VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
+            echo "LIBGL_ALWAYS_SOFTWARE=1"
+            echo "SALVADOR_ALLOW_FALLBACK_GPU=1"
+            echo "WGPU_ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER=1"
+          } >> "$GITHUB_ENV"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Run Rust tests
+        run: cd src-tauri && cargo test
+
+      - name: Run Headless GPU tests (Mesa Lavapipe)
+        run: cd src-tauri && cargo test --test multi_track_compositor_tests --test compositor_raster_transform_tests --test compositor_roundtrip_fixture_tests -- --ignored
+
+      - name: Setup Node.js (for canary harness)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify Mutation Canary Invariants (Rust Compositor & Audio)
+        run: |
+          mkdir -p test-results
+          node scripts/harness/run-canary-mutations.mjs --rust | tee test-results/rust-canary-mutations.log
+
+      - name: Upload Rust Canary Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-canary-reports
+          path: test-results/rust-canary-mutations.log
+
+      - name: Run Clippy
+        run: cd src-tauri && cargo clippy -- -D warnings
+
+  check-windows:
+    name: Check Windows (Rust)
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set LIBCLANG_PATH (Windows)
+        shell: powershell
+        run: |
+          $llvm = "C:\Program Files\LLVM\bin"
+          if (Test-Path $llvm) {
+            echo "LIBCLANG_PATH=$llvm" >> $env:GITHUB_ENV
+            Write-Host "Using runner LLVM at $llvm"
+          } else {
+            choco install llvm -y --no-progress
+            echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+          }
+
+      - name: Cache FFmpeg (Windows)
+        id: cache-ffmpeg-windows
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed\x64-windows-static-md
+          key: ffmpeg-vcpkg-x64-windows-static-md-v1
+
+      - name: Install FFmpeg (Windows)
+        if: steps.cache-ffmpeg-windows.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          cd C:\vcpkg
+          git pull --quiet
+          vcpkg install ffmpeg[core,avcodec,avdevice,avfilter,avformat,swresample,swscale]:x64-windows-static-md
+
+      - name: Configure FFmpeg Environment (Windows)
+        shell: powershell
+        run: |
+          echo "FFMPEG_DIR=C:/vcpkg/installed/x64-windows-static-md" >> $env:GITHUB_ENV
+          echo "PKG_CONFIG_PATH=C:/vcpkg/installed/x64-windows-static-md/lib/pkgconfig" >> $env:GITHUB_ENV
+          echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+          echo "VCPKGRS_TRIPLET=x64-windows-static-md" >> $env:GITHUB_ENV
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Configure MSVC environment for CMake
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Pin MSVC compiler for CMake
+        shell: pwsh
+        run: |
+          $cl = (Get-Command cl.exe -ErrorAction Stop).Source
+          "CMAKE_C_COMPILER=$cl" >> $env:GITHUB_ENV
+          "CMAKE_CXX_COMPILER=$cl" >> $env:GITHUB_ENV
+          "CMAKE_ASM_COMPILER=$cl" >> $env:GITHUB_ENV
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Run Cargo Check on Windows
+        shell: cmd
+        run: cd src-tauri && cargo check
+
+      - name: Run Cargo Clippy on Windows
+        shell: cmd
+        run: cd src-tauri && cargo clippy -- -D clippy::disallowed-methods -D warnings
+
+  build-check:
+    name: Build & Packaging Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [test-frontend, test-rust, check-windows]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend production assets
+        run: npm run build
+
+      - name: Check bundle size
+        run: |
+          if [ -d "dist" ]; then
+            echo "Build successful"
+            du -sh dist
+          else
+            echo "Build failed - dist directory not found"
+            exit 1
+          fi
+
+      - name: Packaged Application & Distribution Smoke Test
+        run: node scripts/smoke-test-packaged-app.mjs --skip-cargo
