@@ -25,6 +25,19 @@ scratch/
 *.swp
 *.swo
 
+# Coding agent configuration and artifacts
+AGENTS.md
+AGENTS.override.md
+CLAUDE.md
+.cursorrules
+.cursor/
+.kiro/
+.github/copilot-instructions.md
+skills-lock.json
+.agents/
+.pi/
+agent-evals/
+
 # System files
 .DS_Store
 Thumbs.db
