@@ -1,0 +1,17 @@
+[package]
+name = "cutnora"
+version = "0.1.0"
+description = "Cutnora desktop video editor"
+license = "MIT"
+repository = "https://github.com/kuldeeprajput-dev/cutnora"
+edition = "2024"
+rust-version = "1.90"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tempfile = "3"
+uuid = { version = "1", features = ["v4"] }

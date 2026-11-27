@@ -70,6 +70,8 @@
 
 ## Run locally
 
+For the Tauri app, see the [Cutnora Desktop setup and Rust migration status](docs/desktop.md).
+
 ### 1. Install the prerequisites
 
 Install [Git](https://git-scm.com/downloads) and [Node.js 24](https://nodejs.org/en/download). Cutnora uses **pnpm 11.20.0**.
@@ -98,7 +100,7 @@ Open **[localhost:3000](http://localhost:3000)**, create a project, and import y
 
 - `pnpm dev` — start the development server.
 - `pnpm build` — create a production build.
-- `pnpm start` — serve that build; run `pnpm build` first.
+- Serve the `out/` directory with a static web server to preview the production web build.
 - `pnpm lint` — check code with ESLint.
 - `pnpm typecheck` — check TypeScript types.
 - `pnpm format:check` — check formatting without changing files.

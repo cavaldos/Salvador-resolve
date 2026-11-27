@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Save a Cutnora export using a native file dialog",
+  "windows": ["main"],
+  "permissions": [
+    "allow-begin-export-save",
+    "allow-write-export-chunk",
+    "allow-finish-export-save",
+    "allow-abort-export-save"
+  ]
+}

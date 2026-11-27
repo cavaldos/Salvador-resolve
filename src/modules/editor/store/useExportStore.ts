@@ -28,6 +28,7 @@ interface ExportState {
   currentExportTime: number; // seconds
   exportError: string | null;
   exportBlobUrl: string | null;
+  desktopExportBlob: Blob | null;
   exportSourceCleanup: (() => Promise<void>) | null;
   exportDownloadName: string;
   exportStatus: string;
@@ -44,7 +45,11 @@ interface ExportState {
   setExportProgress: (progress: number) => void;
   setCurrentExportTime: (time: number) => void;
   setExportError: (error: string | null) => void;
-  setExportBlobUrl: (url: string | null, cleanup?: () => Promise<void>) => void;
+  setExportBlobUrl: (
+    url: string | null,
+    cleanup?: () => Promise<void>,
+    desktopBlob?: Blob,
+  ) => void;
   setIsCancelRequested: (cancel: boolean) => void;
   detectCapabilities: () => void;
   resetExport: () => void;
@@ -63,6 +68,7 @@ export const useExportStore = create<ExportState>()(
     currentExportTime: 0,
     exportError: null,
     exportBlobUrl: null,
+    desktopExportBlob: null,
     exportSourceCleanup: null,
     exportDownloadName: "",
     exportStatus: "",
@@ -135,13 +141,17 @@ export const useExportStore = create<ExportState>()(
         state.exportPhase = "error";
       }),
 
-    setExportBlobUrl: (url, cleanup) =>
+    setExportBlobUrl: (url, cleanup, desktopBlob) =>
       set((state) => {
         if (state.exportBlobUrl && state.exportBlobUrl !== url) {
           URL.revokeObjectURL(state.exportBlobUrl);
+        }
+        const nextBlob = desktopBlob ?? null;
+        if (state.exportBlobUrl !== url || state.desktopExportBlob !== nextBlob) {
           void state.exportSourceCleanup?.().catch(() => undefined);
         }
         state.exportBlobUrl = url;
+        state.desktopExportBlob = nextBlob;
         state.exportSourceCleanup = cleanup ?? null;
       }),
 
@@ -199,6 +209,7 @@ export const useExportStore = create<ExportState>()(
         state.currentExportTime = 0;
         state.exportError = null;
         state.exportBlobUrl = null;
+        state.desktopExportBlob = null;
         state.exportSourceCleanup = null;
         state.exportDownloadName = "";
         state.exportStatus = "";

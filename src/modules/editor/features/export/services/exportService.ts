@@ -1,3 +1,4 @@
+import { isTauri } from "@tauri-apps/api/core";
 import type { Project } from "@/modules/projects/types";
 import { db } from "@/modules/core/db/database";
 import { resolveMediaAssetUrl } from "@/modules/core/storage/media-source-service";
@@ -44,6 +45,7 @@ export interface ExportCallbacks {
     blobUrl: string,
     downloadName?: string,
     cleanup?: () => Promise<void>,
+    desktopBlob?: Blob,
   ) => void;
   onError: (error: string) => void;
   checkIsCancelled: () => boolean;
@@ -75,14 +77,20 @@ export async function runExportTask(
     duration: number,
   ) => {
     const name = getExportFilename(settings.filename, extension);
+    const desktop = isTauri();
     let url = "";
     if (blob) {
       if (!blob.size) throw new Error("The exported file is empty.");
       await blob.slice(0, 1).arrayBuffer();
       if (checkIsCancelled()) throw new Error("EXPORT_CANCELLED");
-      url = URL.createObjectURL(blob);
+      if (!desktop) url = URL.createObjectURL(blob);
     }
-    onComplete(url, name, completedSourceCleanup);
+    onComplete(
+      url,
+      name,
+      completedSourceCleanup,
+      desktop ? (blob ?? undefined) : undefined,
+    );
     completedSourceCleanup = undefined;
     onProgress(duration, duration, 100, "completed");
     if (url) triggerFileDownload(url, name);

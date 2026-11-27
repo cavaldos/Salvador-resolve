@@ -9,6 +9,7 @@ import {
   type ExportQuality,
 } from "@/modules/editor/store/useExportStore";
 import { runExportTask } from "../services/exportService";
+import { saveDesktopExport } from "../services/desktop-export-save";
 import {
   buildExportPreflight,
   type ExportPreflightResult,
@@ -58,6 +59,7 @@ export function ExportModal() {
     currentExportTime,
     exportError,
     exportBlobUrl,
+    desktopExportBlob,
     exportDownloadName,
     exportStatus,
     capabilities,
@@ -77,6 +79,9 @@ export function ExportModal() {
     resetExport,
   } = useExportStore();
 
+  const savingRef = useRef(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
   const isCancelRef = useRef(false);
   const wasOpenRef = useRef(false);
   const exportStartedAtRef = useRef<number | null>(null);
@@ -167,13 +172,15 @@ export function ExportModal() {
 
   // Dialog resets focus when onClose changes, so keep it stable while typing.
   const handleClose = useCallback(() => {
+    if (savingRef.current) return;
     if (exportPhase === "rendering" || exportPhase === "converting") {
       // Escape or Close dismisses an open confirmation and keeps exporting.
       setShowCancelConfirmation((shown) => !shown);
       return;
     }
+    if (useExportStore.getState().desktopExportBlob) resetExport();
     setExportModalOpen(false);
-  }, [exportPhase, setExportModalOpen]);
+  }, [exportPhase, resetExport, setExportModalOpen]);
 
   if (!isExportModalOpen || !currentProject) return null;
 
@@ -199,6 +206,7 @@ export function ExportModal() {
       return;
     }
     isCancelRef.current = false;
+    setSaveMessage("");
     setShowCancelConfirmation(false);
     resetExport();
     exportStartedAtRef.current = performance.now();
@@ -224,8 +232,8 @@ export function ExportModal() {
           setExportPhase(phase);
         },
         onStatus: (status) => useExportStore.setState({ exportStatus: status }),
-        onComplete: (url, downloadName, cleanup) => {
-          setExportBlobUrl(url, cleanup);
+        onComplete: (url, downloadName, cleanup, desktopBlob) => {
+          setExportBlobUrl(url, cleanup, desktopBlob);
           useExportStore.setState({ exportDownloadName: downloadName ?? "" });
           setExportPhase("completed");
         },
@@ -236,6 +244,33 @@ export function ExportModal() {
       },
       preflight,
     );
+  };
+
+  const handleDesktopSave = async () => {
+    if (!desktopExportBlob || savingRef.current) return;
+    savingRef.current = true;
+    setIsSaving(true);
+    setSaveMessage("");
+    try {
+      const result = await saveDesktopExport(
+        desktopExportBlob,
+        exportDownloadName,
+      );
+      if (result) {
+        setSaveMessage(
+          result === "remux-failed"
+            ? "Video saved in its original container. FFmpeg could not remux it."
+            : "Video saved.",
+        );
+      }
+    } catch (error) {
+      setSaveMessage(
+        typeof error === "string" ? error : "Could not save the video. Try again.",
+      );
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -348,9 +383,28 @@ export function ExportModal() {
               Export Completed Successfully!
             </h4>
             <p className="text-xs text-studio-muted">
-              Your video file has been generated and saved locally.
+              {desktopExportBlob
+                ? "Your video is ready to save."
+                : "Your video file has been generated and saved locally."}
             </p>
 
+            {desktopExportBlob && (
+              <>
+                <Button
+                  onClick={handleDesktopSave}
+                  disabled={isSaving}
+                  className="mt-2 gap-2"
+                >
+                  <Download className="h-4 w-4" />
+                  {isSaving ? "Saving video…" : "Save Video…"}
+                </Button>
+                {saveMessage && (
+                  <p role="status" className="text-xs text-studio-muted">
+                    {saveMessage}
+                  </p>
+                )}
+              </>
+            )}
             {exportBlobUrl && (
               <a
                 href={exportBlobUrl}
@@ -602,6 +656,7 @@ export function ExportModal() {
               size="sm"
               variant="secondary"
               onClick={handleClose}
+              disabled={isSaving}
               className="w-full"
             >
               Close
