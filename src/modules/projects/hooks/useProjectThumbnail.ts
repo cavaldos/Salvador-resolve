@@ -1,5 +1,3 @@
-"use client";
-
 import { useState, useEffect } from "react";
 import { db } from "@/modules/core/db/database";
 import { objectUrlManager } from "@/modules/core/db/object-url-manager";

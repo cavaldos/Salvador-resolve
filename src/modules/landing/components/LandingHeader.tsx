@@ -1,7 +1,7 @@
 import { LandingAction } from "./LandingPrimitives";
 import { GithubIcon } from "./GithubIcon";
 
-import Link from "next/link";
+import { Link } from "react-router";
 import { ArrowRight } from "lucide-react";
 import { BrandMark } from "@/shared/components/BrandMark";
 import { ThemeToggle } from "@/shared/components/ThemeToggle";
@@ -19,7 +19,7 @@ export function LandingHeader() {
     <header className="border-studio-border compact:w-[calc(100%_-_40px)] compact:top-3 phone:w-[calc(100%_-_24px)] phone:top-2.5 phone:rounded-[10px] sticky top-4 z-50 mx-auto w-[min(1120px,_calc(100%_-_64px))] rounded-xl border bg-[color-mix(in_srgb,_var(--studio-topbar)_90%,_transparent)] shadow-[0_4px_20px_-12px_rgb(0_0_0_/_15%)] backdrop-blur-[16px]">
       <div className="laptop:gap-3 compact:h-15 compact:px-3.5 phone:h-16 phone:gap-1.5 phone:px-2 flex h-15 items-center justify-between gap-5 pt-0 pr-4 pb-0 pl-5">
         <Link
-          href="/"
+          to="/"
           className="text-studio-fg compact:text-[19px] phone:gap-1.75 phone:text-[18px] phone:min-h-11 phone:shrink-0 phone:[&>span:first-child]:w-6.25! phone:[&>span:first-child]:h-6.25! inline-flex items-center gap-2.25 text-[21px] font-bold tracking-[-0.8px]"
           aria-label="Cutnora home"
         >
@@ -53,7 +53,7 @@ export function LandingHeader() {
           />
           <LandingAction
             small
-            href="/projects"
+            to="/projects"
             className="phone:min-h-11 phone:px-2.5 phone:text-[11px] phone:[&>svg]:hidden"
           >
             Projects

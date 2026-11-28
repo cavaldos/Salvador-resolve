@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useMemo, useRef, useState } from "react";
 import { usePlaybackStore } from "@/modules/editor/store/usePlaybackStore";
 import { playbackClock } from "@/modules/editor/features/playback/services/playback-clock";

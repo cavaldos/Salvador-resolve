@@ -1,5 +1,3 @@
-"use client";
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Gauge, Minimize2, Pause, Play, Volume2, VolumeX } from "lucide-react";
 import { usePlaybackStore } from "@/modules/editor/store/usePlaybackStore";

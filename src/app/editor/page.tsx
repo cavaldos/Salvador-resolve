@@ -1,8 +1,5 @@
-'use client';
-
 import React, { Suspense, useEffect, useState, useRef } from 'react';
-import Link from 'next/link';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useProjectStore } from '@/modules/projects';
 import { ResponsiveProjectShell } from '@/modules/editor/components/shell/ResponsiveProjectShell';
 import { Spinner } from '@/shared/components/ui/Spinner';
@@ -10,9 +7,9 @@ import { Button } from '@/shared/components/ui/Button';
 import { AlertCircle, Plus } from 'lucide-react';
 
 function EditorContent() {
-  const searchParams = useSearchParams();
+  const [searchParams] = useSearchParams();
   const projectId = searchParams.get('project');
-  const router = useRouter();
+  const navigate = useNavigate();
   const { loadProject, createProject, currentProject, isLoading, error } = useProjectStore();
   const [isLoaded, setIsLoaded] = useState(false);
   const isCreatingRef = useRef(false);
@@ -32,7 +29,7 @@ function EditorContent() {
             fps: 30,
             backgroundColor: '#000000',
           });
-          router.replace(`/editor?project=${newProject.id}`);
+          navigate(`/editor?project=${newProject.id}`, { replace: true });
           setIsLoaded(true);
         } catch (err) {
           console.error('Failed to create new project:', err);
@@ -58,7 +55,7 @@ function EditorContent() {
     return () => {
       isMounted = false;
     };
-  }, [projectId, loadProject, createProject, router]);
+  }, [projectId, loadProject, createProject, navigate]);
 
   if (!projectId || projectId === 'new' || projectId === 'create' || isLoading || !isLoaded) {
     return (
@@ -86,7 +83,7 @@ function EditorContent() {
             onClick={async () => {
               try {
                 const project = await createProject('Untitled video');
-                router.replace(`/editor?project=${project.id}`);
+                navigate(`/editor?project=${project.id}`, { replace: true });
               } catch (err) {
                 console.error('Failed to create project:', err);
               }
@@ -94,7 +91,7 @@ function EditorContent() {
           >
             <Plus className="h-4 w-4" /> Create New Project
           </Button>
-          <Link href="/projects">
+          <Link to="/projects">
             <Button size="md" variant="secondary">
               Go to Projects
             </Button>

@@ -1,5 +1,3 @@
-"use client";
-
 import React from "react";
 import { Check, Copy, Trash2 } from "lucide-react";
 import { cn } from "@/shared/utils/cn";

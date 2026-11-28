@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "react-router";
 import { ArrowRight, Play } from "lucide-react";
 import { LandingContainer, OpenEditorButton } from "./LandingPrimitives";
 
@@ -19,7 +19,7 @@ export function FinalEditorCta() {
       <p>Open a tab. Bring your footage. Make something yours.</p>
       <OpenEditorButton className="phone:w-full phone:max-w-85 mt-6" />
       <Link
-        href="/projects"
+        to="/projects"
         className="text-studio-muted phone:min-h-11 phone:mt-3 phone:text-[13px] mt-4.5 mr-auto mb-0 ml-auto flex w-[fit-content] items-center gap-1.75 text-[10px]"
       >
         Or pick up an existing project

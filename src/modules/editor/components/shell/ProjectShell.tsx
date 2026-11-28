@@ -1,7 +1,4 @@
-"use client";
-
-import React, { useEffect, useState } from "react";
-import dynamic from "next/dynamic";
+import React, { lazy, Suspense, useEffect, useState } from "react";
 import { ProjectTopBar } from "../header/ProjectTopBar";
 import { ProjectToolRail } from "../rail/ProjectToolRail";
 import { InspectorDockButton } from "../panels/InspectorDockButton";
@@ -19,12 +16,10 @@ import { useEditorUIStore } from "@/modules/editor/store/useEditorUIStore";
 import { ErrorBoundary } from "@/shared/components/ErrorBoundary";
 import { useExportStore } from "@/modules/editor/store/useExportStore";
 
-const ExportModal = dynamic(
-  () =>
-    import("@/modules/editor/features/export/components/ExportModal").then(
-      (mod) => mod.ExportModal,
-    ),
-  { ssr: false },
+const ExportModal = lazy(() =>
+  import("@/modules/editor/features/export/components/ExportModal").then(
+    (mod) => ({ default: mod.ExportModal }),
+  ),
 );
 
 function maximumLeftPanelWidth(
@@ -374,7 +369,9 @@ export function ProjectShell() {
       {/* Global Modals & Notifications */}
       {isExportModalOpen && (
         <ErrorBoundary fallbackTitle="Export Error">
-          <ExportModal />
+          <Suspense fallback={null}>
+            <ExportModal />
+          </Suspense>
         </ErrorBoundary>
       )}
       <KeyboardShortcutsModal

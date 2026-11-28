@@ -1,5 +1,3 @@
-'use client';
-
 import React, { useState } from 'react';
 import { Dialog } from '@/shared/components/ui/Dialog';
 import { COMMAND_REGISTRY, type CommandCategory } from '@/modules/editor/commands/command-registry';

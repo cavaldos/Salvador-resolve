@@ -1,8 +1,5 @@
-"use client";
-
 import React, { useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { Link, useNavigate } from "react-router";
 import { ChevronRight, Search, X } from "lucide-react";
 import { ThemeToggle } from "@/shared/components/ThemeToggle";
 import { ViewModeToggle } from "./ViewModeToggle";
@@ -23,7 +20,7 @@ export function ProjectsHeader({
   onSearchChange,
   onCreateProject,
 }: ProjectsHeaderProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const createProject = useProjectStore((s) => s.createProject);
   const [isCreating, setIsCreating] = useState(false);
 
@@ -36,7 +33,7 @@ export function ProjectsHeader({
     setIsCreating(true);
     try {
       const project = await createProject("Untitled video");
-      router.push(`/editor?project=${project.id}`);
+      navigate(`/editor?project=${project.id}`);
     } catch (err) {
       console.error("Failed to create project:", err);
       setIsCreating(false);
@@ -59,7 +56,7 @@ export function ProjectsHeader({
                 <Link
                   className="hover:text-foreground transition-colors text-sm sm:text-base"
                   data-slot="breadcrumb-link"
-                  href="/"
+                  to="/"
                 >
                   Home
                 </Link>

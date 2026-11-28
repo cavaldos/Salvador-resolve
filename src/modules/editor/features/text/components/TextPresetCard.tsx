@@ -1,5 +1,3 @@
-"use client";
-
 import React from "react";
 import { Plus } from "lucide-react";
 import type { TextPreset } from "../data/text-presets";

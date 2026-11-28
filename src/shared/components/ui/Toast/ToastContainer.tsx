@@ -1,5 +1,3 @@
-'use client';
-
 import React from 'react';
 import { useToastStore } from './useToastStore';
 import { CheckCircle, Info, AlertTriangle, XCircle, X } from 'lucide-react';

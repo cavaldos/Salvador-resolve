@@ -1,30 +1,5 @@
-import type { Metadata } from "next";
 import { siteConfig } from "@/config/site";
 import { MinimalLanding } from "@/modules/landing/components/MinimalLanding";
-
-export const metadata: Metadata = {
-  alternates: { canonical: siteConfig.url },
-  openGraph: {
-    title: siteConfig.title,
-    description: siteConfig.description,
-    siteName: siteConfig.name,
-    locale: "en_US",
-    type: "website",
-    url: siteConfig.url,
-    images: [siteConfig.socialImage],
-  },
-  robots: {
-    index: true,
-    follow: true,
-    googleBot: {
-      index: true,
-      follow: true,
-      "max-image-preview": "large",
-      "max-snippet": -1,
-      "max-video-preview": -1,
-    },
-  },
-};
 
 const structuredData = {
   "@context": "https://schema.org",
@@ -60,7 +35,8 @@ const structuredData = {
 
 export default function LandingPage() {
   return (
-    <>
+    <div className="min-h-screen bg-mkt-bg text-mkt-fg">
+      <link rel="canonical" href={siteConfig.url} />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
@@ -68,6 +44,6 @@ export default function LandingPage() {
         }}
       />
       <MinimalLanding />
-    </>
+    </div>
   );
 }

@@ -1,8 +1,5 @@
-"use client";
-
 import React, { useEffect, useCallback } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { Link, useNavigate } from "react-router";
 import { Clapperboard, Plus, SearchX } from "lucide-react";
 import {
   ProjectsHeader,
@@ -84,18 +81,18 @@ export default function ProjectsDashboardPage() {
     handleConfirmDelete,
   } = useProjects();
 
-  const router = useRouter();
+  const navigate = useNavigate();
   const createProject = useProjectStore((s) => s.createProject);
 
   const handleCreateProject = useCallback(async () => {
     try {
       const project = await createProject("Untitled video");
-      router.push(`/editor?project=${project.id}`);
+      navigate(`/editor?project=${project.id}`);
     } catch (err) {
       console.error("Failed to create project:", err);
-      router.push("/projects/new");
+      navigate("/projects/new");
     }
-  }, [createProject, router]);
+  }, [createProject, navigate]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {

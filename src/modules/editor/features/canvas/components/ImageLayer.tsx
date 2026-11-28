@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useEffect, useState } from "react";
 import { db } from "@/modules/core/db/database";
 import { resolveMediaAssetUrl } from "@/modules/core/storage/media-source-service";
@@ -61,7 +59,6 @@ export function ImageLayer({ clip }: ImageLayerProps) {
     : undefined;
 
   return (
-    // eslint-disable-next-line @next/next/no-img-element
     <img
       src={imageUrl}
       alt={clip.name}

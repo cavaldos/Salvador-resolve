@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useRef, useState } from "react";
 import { UploadCloud } from "lucide-react";
 import { cn } from "@/shared/utils/cn";

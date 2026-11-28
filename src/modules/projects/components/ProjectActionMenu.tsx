@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useEffect, useRef } from "react";
 import { CheckSquare, Pencil, Copy, Info, Trash2 } from "lucide-react";
 import { cn } from "@/shared/utils/cn";

@@ -1,5 +1,3 @@
-"use client";
-
 import React from "react";
 import { Palette, PenTool, Sparkles, Square } from "lucide-react";
 import type { ElementStyle, TimelineClip } from "@/modules/editor/types";

@@ -1,5 +1,3 @@
-"use client";
-
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useEditorUIStore } from "@/modules/editor/store/useEditorUIStore";
 

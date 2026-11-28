@@ -1,8 +1,5 @@
-"use client";
-
 import { LandingActionButton } from "./LandingPrimitives";
 
-import Image from "next/image";
 import { useState } from "react";
 import {
   Check,
@@ -172,14 +169,13 @@ export function EditorPreview() {
         </div>
         <div className="bg-canvas-bg phone:pt-1.75 phone:pr-1.75 phone:pb-0 phone:pl-1.75 relative flex min-w-0 flex-col justify-center pt-2.75 pr-2.75 pb-0 pl-2.75">
           <div className="laptop:[&>span]:text-[25px] compact:[&>span]:text-[20px] phone:aspect-[1.65] phone:[&>span]:text-[clamp(15px,_4.2vw,_22px)] relative mx-auto aspect-[16_/_9] w-full max-w-170 overflow-hidden rounded-[5px] bg-[#222] shadow-[0_10px_25px_-12px_rgb(0_0_0_/_40%)] [&_img]:block [&_img]:h-full [&_img]:w-full [&_img]:object-cover [&>span]:absolute [&>span]:top-[53%] [&>span]:right-0 [&>span]:left-0 [&>span]:[transform:translateY(-50%)] [&>span]:text-center [&>span]:font-[family-name:Georgia,_serif] [&>span]:text-[clamp(20px,_2.4vw,_34px)] [&>span]:text-white [&>span]:[text-shadow:0_1px_8px_rgb(0_0_0_/_25%)]">
-            <Image
+            <img
               src="/images/coastal-still.webp"
               alt="Sample coastal landscape with cliffs and ocean"
               width={1672}
               height={941}
               fetchPriority="high"
               loading="eager"
-              sizes="(max-width: 560px) 90vw, (max-width: 800px) 65vw, 800px"
             />
             {showText && <span>Find your own rhythm.</span>}
           </div>

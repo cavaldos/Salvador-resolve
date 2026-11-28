@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import {
   ArrowLeftRight,

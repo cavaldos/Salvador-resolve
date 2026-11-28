@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { Check, ClipboardPaste, Pipette, RotateCcw } from "lucide-react";

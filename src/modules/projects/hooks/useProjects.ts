@@ -1,5 +1,3 @@
-"use client";
-
 import { useState, useEffect } from "react";
 import { nanoid } from "nanoid";
 import { db } from "@/modules/core/db/database";

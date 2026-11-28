@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useState, useEffect } from "react";
 import type { TimelineClip, Track } from "@/modules/editor/types";
 import { useEditorUIStore } from "@/modules/editor/store/useEditorUIStore";
@@ -440,7 +438,6 @@ export function TimelineClipItem({
                 className="relative shrink-0 border-r border-black/50 overflow-hidden"
                 style={{ width: `${frameWidth}px`, height: "100%" }}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={thumbUrl}
                   alt=""
@@ -461,7 +458,6 @@ export function TimelineClipItem({
                 className="relative shrink-0 border-r border-black/50 overflow-hidden"
                 style={{ width: `${frameWidth}px`, height: "100%" }}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={thumbUrl}
                   alt=""

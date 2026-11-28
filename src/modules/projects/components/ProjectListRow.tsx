@@ -1,7 +1,5 @@
-"use client";
-
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import Link from "next/link";
+import { Link } from "react-router";
 import { Clapperboard, Check, MoreHorizontal } from "lucide-react";
 import { useProjectThumbnail } from "../hooks/useProjectThumbnail";
 import type { Project } from "../types";
@@ -114,7 +112,7 @@ export function ProjectListRow({
 
       {/* Mini square thumbnail */}
       <Link
-        href={`/editor?project=${project.id}`}
+        to={`/editor?project=${project.id}`}
         className="relative h-9 w-9 shrink-0 overflow-hidden rounded-md border border-border bg-muted flex items-center justify-center"
       >
         {thumbUrl ? (
@@ -130,7 +128,7 @@ export function ProjectListRow({
 
       {/* Project Title */}
       <Link
-        href={`/editor?project=${project.id}`}
+        to={`/editor?project=${project.id}`}
         className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground hover:text-foreground/70 transition-colors"
       >
         {project.name}

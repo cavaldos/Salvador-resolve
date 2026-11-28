@@ -10,7 +10,7 @@
 <h3 align="center">Local-first Video Editor, Multi-track Timeline &amp; Browser Export</h3>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Next.js-16.3-18181b?style=flat-square&amp;logo=nextdotjs&amp;logoColor=white" alt="Next.js 16.3">
+  <img src="https://img.shields.io/badge/Vite-8-646cff?style=flat-square&amp;logo=vite&amp;logoColor=white" alt="Vite 8">
   <img src="https://img.shields.io/badge/React-19.2-087ea4?style=flat-square&amp;logo=react&amp;logoColor=white" alt="React 19.2">
   <img src="https://img.shields.io/badge/TypeScript-5.7-3178c6?style=flat-square&amp;logo=typescript&amp;logoColor=white" alt="TypeScript 5.7">
   <img src="https://img.shields.io/badge/Tailwind_CSS-4.3-0891b2?style=flat-square&amp;logo=tailwindcss&amp;logoColor=white" alt="Tailwind CSS 4.3">
@@ -100,7 +100,7 @@ Open **[localhost:3000](http://localhost:3000)**, create a project, and import y
 
 - `pnpm dev` — start the development server.
 - `pnpm build` — create a production build.
-- Serve the `out/` directory with a static web server to preview the production web build.
+- Run `pnpm preview` to preview the production web build. When serving `dist/` on a static host, configure an `index.html` fallback for SPA routes.
 - `pnpm lint` — check code with ESLint.
 - `pnpm typecheck` — check TypeScript types.
 - `pnpm format:check` — check formatting without changing files.
@@ -133,7 +133,7 @@ The sitemap lists the public landing page. Editor and local project routes use `
 
 ## Under the hood
 
-Built with Next.js, React, TypeScript, and Tailwind CSS. Zustand manages editor state; Dexie and browser file storage keep projects and media local. Mediabunny and browser media APIs handle decoding and export, with MediaRecorder and FFmpeg compatibility paths.
+Built with Vite, React, TypeScript, and Tailwind CSS. The desktop app is packaged with Tauri 2 and uses Rust for native export saving. Zustand manages editor state; Dexie and browser file storage keep projects and media local. Mediabunny and browser media APIs handle decoding and export, with MediaRecorder and FFmpeg compatibility paths.
 
 ## Contribute and get help
 

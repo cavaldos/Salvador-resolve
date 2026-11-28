@@ -1,5 +1,3 @@
-"use client";
-
 import React from "react";
 import type { Track } from "@/modules/editor/types";
 import { cn } from "@/shared/utils/cn";

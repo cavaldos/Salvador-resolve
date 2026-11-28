@@ -1,5 +1,3 @@
-"use client";
-
 import React from "react";
 import { useEditorUIStore } from "@/modules/editor/store/useEditorUIStore";
 import { ProjectPanel } from "@/shared/components/layout/ProjectPanel";

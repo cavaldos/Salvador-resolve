@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useState } from "react";
 import { ChevronDown, ChevronRight, RotateCcw } from "lucide-react";
 import type { TimelineClip } from "@/modules/editor/types";

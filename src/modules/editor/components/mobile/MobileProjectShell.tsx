@@ -1,8 +1,5 @@
-"use client";
-
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
-import dynamic from "next/dynamic";
+import React, { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 import {
   ArrowLeft,
   Check,
@@ -78,12 +75,10 @@ const moreTools: ToolItem[] = [
   { id: "record", label: "Record", icon: Mic },
 ];
 
-const ExportModal = dynamic(
-  () =>
-    import("@/modules/editor/features/export/components/ExportModal").then(
-      (mod) => mod.ExportModal,
-    ),
-  { ssr: false },
+const ExportModal = lazy(() =>
+  import("@/modules/editor/features/export/components/ExportModal").then(
+    (mod) => ({ default: mod.ExportModal }),
+  ),
 );
 
 function formatTime(seconds: number) {
@@ -315,7 +310,7 @@ export function MobileProjectShell() {
     <div ref={editorRef} className="relative flex h-dvh w-full min-w-0 flex-col overflow-hidden bg-studio-bg text-studio-fg select-none">
       <header className="flex h-[calc(60px+env(safe-area-inset-top))] shrink-0 items-center gap-2 border-b border-studio-border bg-studio-topbar px-2.5 pt-[env(safe-area-inset-top)]">
         <Link
-          href="/projects"
+          to="/projects"
           aria-label="Back to projects"
           className="flex h-11 w-11 shrink-0 touch-manipulation items-center justify-center rounded-xl text-studio-muted transition-colors hover:bg-studio-hover hover:text-studio-fg active:bg-studio-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-studio-fg/30"
         >
@@ -687,7 +682,9 @@ export function MobileProjectShell() {
 
       {isExportModalOpen ? (
         <ErrorBoundary fallbackTitle="Export Error">
-          <ExportModal />
+          <Suspense fallback={null}>
+            <ExportModal />
+          </Suspense>
         </ErrorBoundary>
       ) : null}
     </div>

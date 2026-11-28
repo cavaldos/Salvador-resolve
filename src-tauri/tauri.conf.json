@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "dev.kuldeeprajput.cutnora",
   "build": {
-    "frontendDist": "../out",
+    "frontendDist": "../dist",
     "devUrl": "http://localhost:3000",
-    "beforeDevCommand": "pnpm dev --hostname localhost",
+    "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "pnpm build"
   },
   "app": {

@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Image as ImageIcon,
@@ -921,7 +919,6 @@ export function MobileTimeline() {
                         className="relative h-full shrink-0 overflow-hidden border-r border-black/50"
                         style={{ width: frameWidth }}
                       >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={thumb.url}
                           alt=""

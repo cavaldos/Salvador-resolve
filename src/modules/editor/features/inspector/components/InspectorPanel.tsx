@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useState, useEffect, useRef } from "react";
 import { useEditorUIStore } from "@/modules/editor/store/useEditorUIStore";
 import { useProjectStore } from "@/modules/projects";

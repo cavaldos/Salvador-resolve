@@ -1,4 +1,3 @@
-import Image from "next/image";
 import { TimelineArtwork } from "./TimelineArtwork";
 import {
   ArrowRight,
@@ -107,10 +106,9 @@ export function FeatureShowcase() {
             </div>
           </FeatureCopy>
           <div className="compact:aspect-[auto] phone:aspect-[1.6] phone:mt-0 phone:mr-3 phone:mb-3 phone:ml-3 relative mt-4 mr-4 mb-4 ml-0 aspect-[1.85] min-w-0 overflow-hidden rounded-[7px] [&_img]:h-full [&_img]:w-full [&_img]:object-cover">
-            <Image
+            <img
               src="/images/coastal-still.webp"
               alt="Coastal sample media with a text overlay"
-              sizes="(max-width: 560px) 90vw, 700px"
               width={1672}
               height={941}
               loading="lazy"

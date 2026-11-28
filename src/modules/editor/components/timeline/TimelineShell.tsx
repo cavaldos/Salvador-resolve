@@ -1,5 +1,3 @@
-'use client';
-
 import React from 'react';
 import { TimelineEditor } from '@/modules/editor/features/timeline';
 

@@ -54,16 +54,15 @@ behavior. Include mobile and desktop expectations when relevant.
 
 ## Project structure and coding conventions
 
-- `src/app/`: routes and layouts, including `(landing)`, `projects`, and `editor`.
+- `src/main.tsx` and `src/app/`: React Router setup and pages for landing, Projects, and Editor.
 - `src/modules/landing/`: the public landing page.
 - `src/modules/projects/`: project management and schemas.
 - `src/modules/editor/`: editor components, state, and editing features.
 - `src/modules/core/`: shared persistence and media storage services.
 - `src/shared/`: reusable components and utilities.
 
-Follow the existing TypeScript, ESLint, and Prettier conventions. Read
-`AGENTS.md` and the relevant installed Next.js documentation in
-`node_modules/next/dist/docs/` before changing framework behavior.
+Follow the existing TypeScript, ESLint, and Prettier conventions. See
+[the desktop guide](docs/desktop.md) for the Vite and Tauri workflow.
 
 Preserve module boundaries: `app` composes modules and shared components;
 modules may use shared components; shared components should not introduce

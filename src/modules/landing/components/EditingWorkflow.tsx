@@ -1,4 +1,3 @@
-import Image from "next/image";
 import { TimelineArtwork } from "./TimelineArtwork";
 import {
   ArrowRight,
@@ -98,12 +97,11 @@ export function EditingWorkflow() {
               ) : (
                 <div className="[&>span]:text-studio-muted phone:[&>span]:text-[11px] flex flex-col items-center gap-2 px-5 py-2.5 [&>span]:flex [&>span]:items-center [&>span]:gap-1.25 [&>span]:text-[8px]">
                   <div className="compact:w-25 compact:h-15 phone:w-35 phone:h-20 h-18.75 w-32.5 overflow-hidden rounded [&_img]:h-full [&_img]:w-full [&_img]:object-cover">
-                    <Image
+                    <img
                       src="/images/coastal-still.webp"
                       width={1672}
                       height={941}
                       alt=""
-                      sizes="130px"
                       loading="lazy"
                     />
                   </div>

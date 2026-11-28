@@ -1,5 +1,5 @@
 import { ArrowRight } from "lucide-react";
-import Link from "next/link";
+import { Link } from "react-router";
 import type { ComponentProps, HTMLAttributes } from "react";
 import { cn } from "@/shared/utils/cn";
 
@@ -110,7 +110,7 @@ export function LandingActionButton({
 
 export function OpenEditorButton({ className }: { className?: string }) {
   return (
-    <LandingAction href="/projects/new" className={className}>
+    <LandingAction to="/projects/new" className={className}>
       Open Editor
       <ArrowRight size={17} />
     </LandingAction>

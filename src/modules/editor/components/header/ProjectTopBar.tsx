@@ -1,7 +1,5 @@
-"use client";
-
 import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "react-router";
 import {
   Undo2,
   Redo2,
@@ -41,7 +39,7 @@ export interface ProjectTopBarProps {
 }
 
 export function ProjectTopBar({ onOpenHelp }: ProjectTopBarProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [isNavigating, setIsNavigating] = useState(false);
 
   const navigateFromEditor = async (href: string) => {
@@ -54,7 +52,7 @@ export function ProjectTopBar({ onOpenHelp }: ProjectTopBarProps) {
         await autosaveService.executeSave();
         if (autosaveService.getStatus() === "error") return;
       }
-      router.push(href);
+      navigate(href);
     } catch {
       useToastStore.getState().showToast("Could not leave the editor. Please try again.", "error");
     } finally {

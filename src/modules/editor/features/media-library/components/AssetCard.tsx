@@ -1,6 +1,4 @@
-"use client";
-
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { db } from "@/modules/core/db/database";
 import { objectUrlManager } from "@/modules/core/db/object-url-manager";
 import { deleteStoredMediaAsset } from "@/modules/core/storage/media-asset-service";
@@ -173,7 +171,6 @@ export function AssetCard({
         <div className="flex items-center gap-3 min-w-0">
           <div className="h-10 w-14 shrink-0 rounded bg-black/10 dark:bg-black/40 border border-studio-border overflow-hidden flex items-center justify-center">
             {thumbUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={thumbUrl}
                 alt={asset.name}
@@ -268,7 +265,6 @@ export function AssetCard({
           <span className="absolute inset-0 animate-pulse bg-gradient-to-br from-studio-hover via-studio-panel-raised to-transparent" />
         )}
         {thumbUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={thumbUrl}
             alt={asset.name}

@@ -1,6 +1,6 @@
 # Cutnora Desktop
 
-The `feat/tauri-rust-desktop` branch packages Cutnora with Tauri 2. The Next.js build emits static files into `out/`; the installed app does not need Node.js or a local Next.js server. It opens the Projects workspace by default. Project links use `/editor/?project=…`; the old dynamic `/projects/:id` redirect is not part of the desktop build.
+Tauri 2 packages the Vite build from `dist/`. The installed app needs neither Node.js nor a local web server. It opens the Projects workspace by default; project links use `/editor?project=…`. In development, Tauri starts Vite on `http://localhost:3000` so existing WebView project storage keeps the same origin. Stop any previous dev server on port 3000 before starting.
 
 ## Run locally
 

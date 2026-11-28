@@ -1,12 +1,10 @@
-'use client';
-
 import { useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useNavigate } from 'react-router';
 import { useProjectStore } from '@/modules/projects';
 import { Spinner } from '@/shared/components/ui/Spinner';
 
 export default function NewProjectPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const createProject = useProjectStore((s) => s.createProject);
   const isCreatingRef = useRef(false);
 
@@ -23,7 +21,7 @@ export default function NewProjectPage() {
           fps: 30,
           backgroundColor: '#000000',
         });
-        router.replace(`/editor?project=${project.id}`);
+        navigate(`/editor?project=${project.id}`, { replace: true });
       } catch (err) {
         console.error('Failed to create project:', err);
         isCreatingRef.current = false;
@@ -31,7 +29,7 @@ export default function NewProjectPage() {
     }
 
     initializeNewProject();
-  }, [createProject, router]);
+  }, [createProject, navigate]);
 
   return (
     <div className="flex h-screen w-screen flex-col items-center justify-center bg-studio-bg text-studio-fg">

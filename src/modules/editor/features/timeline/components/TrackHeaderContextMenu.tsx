@@ -1,5 +1,3 @@
-'use client';
-
 import { ContextMenu, type ContextMenuItemData } from '@/shared/components/ui/ContextMenu';
 import { useProjectStore } from '@/modules/projects';
 import type { TrackType } from '@/modules/editor/types';

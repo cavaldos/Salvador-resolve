@@ -1,5 +1,3 @@
-'use client';
-
 import { ContextMenu, type ContextMenuItemData } from '@/shared/components/ui/ContextMenu';
 import { useClipboardStore } from '@/modules/editor/store/useClipboardStore';
 import { useProjectStore } from '@/modules/projects';

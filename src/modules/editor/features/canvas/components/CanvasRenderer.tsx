@@ -1,5 +1,3 @@
-'use client';
-
 import React from 'react';
 import { useProjectStore } from '@/modules/projects';
 import { usePlaybackStore } from '@/modules/editor/store/usePlaybackStore';

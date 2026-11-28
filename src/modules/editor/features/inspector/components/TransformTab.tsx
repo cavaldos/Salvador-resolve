@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useState } from "react";
 import type { TimelineClip, CropSettings } from "@/modules/editor/types";
 import { useProjectStore } from "@/modules/projects";

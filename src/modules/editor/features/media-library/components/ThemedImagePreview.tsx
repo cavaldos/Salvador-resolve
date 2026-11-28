@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, Minimize2, RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
@@ -192,7 +190,6 @@ export function ThemedImagePreview({ src, alt, previewFullscreen = false, onTogg
       role="region"
       aria-label={`Image preview: ${alt}`}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={src}
         alt={alt}

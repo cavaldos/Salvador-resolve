@@ -1,5 +1,3 @@
-"use client";
-
 import { memo, useState } from "react";
 import { ImageOff, LoaderCircle, Plus } from "lucide-react";
 import type { LibraryMedia } from "./elements-library";
@@ -52,7 +50,6 @@ export const ElementMediaCard = memo(function ElementMediaCard({
           </span>
         ) : (
           // Provider images retain their animation; previews load only when nearby.
-          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={item.previewUrl}
             srcSet={item.previewSrcSet}

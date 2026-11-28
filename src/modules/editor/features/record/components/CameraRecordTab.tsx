@@ -1,5 +1,3 @@
-'use client';
-
 import React from 'react';
 import { Select } from '@/shared/components/ui/Select';
 import type { MediaDeviceItem } from './MicRecordTab';

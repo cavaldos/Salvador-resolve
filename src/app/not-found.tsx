@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { Link } from 'react-router';
 import { Film, Home } from 'lucide-react';
 import { Button } from '@/shared/components/ui/Button';
 
@@ -14,7 +14,7 @@ export default function NotFound() {
         The requested URL was not found on Cutnora.
       </p>
       <div className="mt-6">
-        <Link href="/">
+        <Link to="/">
           <Button size="md" variant="primary" className="gap-2">
             <Home className="h-4 w-4" /> Return to Home
           </Button>
