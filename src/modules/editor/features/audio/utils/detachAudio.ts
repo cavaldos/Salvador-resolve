@@ -1,5 +1,5 @@
 import { db } from "@/modules/core/db/database";
-import { resolveMediaAssetBlob } from "@/modules/core/storage/media-source-service";
+import { resolveMediaInputSource } from "@/modules/core/storage/media-input-source";
 import { useEditorUIStore } from "@/modules/editor/store/useEditorUIStore";
 import { useProjectStore } from "@/modules/projects";
 import { useToastStore } from "@/shared/components/ui/Toast/useToastStore";
@@ -13,8 +13,8 @@ export async function detachAudioFromVideo(clipId: string) {
   try {
     const asset = await db.assets.get(clip.assetId);
     if (!asset) throw new Error("The source video is missing.");
-    const { Input, ALL_FORMATS, BlobSource } = await import("mediabunny");
-    const input = new Input({ formats: ALL_FORMATS, source: new BlobSource(await resolveMediaAssetBlob(asset)) });
+    const { Input, ALL_FORMATS } = await import("mediabunny");
+    const input = new Input({ formats: ALL_FORMATS, source: await resolveMediaInputSource(asset) });
     try {
       if (!(await input.getPrimaryAudioTrack())) {
         toast("This video has no audio track.", "warning");

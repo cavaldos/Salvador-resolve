@@ -42,7 +42,7 @@ export function DeleteProjectModal({
 
   const title = isBatch
     ? `Delete ${batchCount} projects`
-    : `Delete project`;
+    : project?.folder ? "Remove from Recents" : "Delete project";
 
   const isConfirmValid = confirmText.trim() === "DELETE";
 
@@ -69,11 +69,11 @@ export function DeleteProjectModal({
         <div className="pb-3">
           <h3 id="delete-modal-title" className="text-base font-semibold text-foreground">{title}</h3>
           <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-            This will permanently delete{" "}
-            <span className="font-medium text-foreground">
-              {isBatch ? `${batchCount} selected projects` : `"${targetName}"`}
-            </span>{" "}
-            and all associated files.
+            {project?.folder
+              ? `“${targetName}” will be removed from Recents. The project file and videos will remain in their folder.`
+              : isBatch
+                ? "Regular projects will be permanently deleted. Folder projects will only be removed from Recents."
+                : `This will permanently delete “${targetName}” and its associated files.`}
           </p>
         </div>
 
@@ -104,7 +104,7 @@ export function DeleteProjectModal({
               disabled={!isConfirmValid}
               className="rounded-lg bg-destructive px-4 py-2 text-xs font-semibold text-white hover:bg-destructive-hover active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
             >
-              Delete
+              {project?.folder ? "Remove" : "Delete"}
             </button>
           </div>
         </form>

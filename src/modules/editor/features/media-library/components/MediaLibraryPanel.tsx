@@ -72,9 +72,12 @@ export function MediaLibraryPanel() {
   const rawAssets = useLiveQuery(
     async () => {
       if (!currentProject) return [];
-      return db.assets.where("projectId").equals(currentProject.id).toArray();
+      const assets = await db.assets.where("projectId").equals(currentProject.id).toArray();
+      if (!currentProject.folder) return assets;
+      const activeIds = new Set(currentProject.assetIds);
+      return assets.filter((asset) => activeIds.has(asset.id));
     },
-    [currentProject?.id],
+    [currentProject?.id, currentProject?.folder, currentProject?.assetIds],
     [],
   );
 

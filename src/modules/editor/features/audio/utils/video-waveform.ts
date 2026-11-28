@@ -1,4 +1,4 @@
-import { resolveMediaAssetBlob } from "@/modules/core/storage/media-source-service";
+import { resolveMediaInputSource } from "@/modules/core/storage/media-input-source";
 import type { MediaAsset } from "@/modules/projects/types";
 
 const cache = new Map<string, Promise<number[]>>();
@@ -7,8 +7,8 @@ async function decodeVideoWaveform(asset: MediaAsset) {
   const duration = asset.duration ?? 0;
   // shortcut: skip waveform decoding beyond 20 minutes until it can run in a worker.
   if (duration <= 0 || duration > 1200) return [];
-  const { ALL_FORMATS, AudioBufferSink, BlobSource, Input } = await import("mediabunny");
-  const input = new Input({ formats: ALL_FORMATS, source: new BlobSource(await resolveMediaAssetBlob(asset)) });
+  const { ALL_FORMATS, AudioBufferSink, Input } = await import("mediabunny");
+  const input = new Input({ formats: ALL_FORMATS, source: await resolveMediaInputSource(asset) });
   try {
     const track = await input.getPrimaryAudioTrack();
     if (!track || !(await track.canDecode())) return [];
@@ -30,10 +30,13 @@ async function decodeVideoWaveform(asset: MediaAsset) {
 }
 
 export function getVideoWaveform(asset: MediaAsset) {
-  const cached = cache.get(asset.id);
+  const key = asset.source?.kind === "folder"
+    ? JSON.stringify([asset.id, asset.source.folderId, asset.source.modifiedAt])
+    : asset.id;
+  const cached = cache.get(key);
   if (cached) return cached;
   if (cache.size >= 48) cache.delete(cache.keys().next().value ?? "");
   const pending = decodeVideoWaveform(asset).catch(() => []);
-  cache.set(asset.id, pending);
+  cache.set(key, pending);
   return pending;
 }

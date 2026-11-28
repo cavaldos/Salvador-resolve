@@ -168,7 +168,8 @@ export function ProjectListRow({
           onSelect={(e) => onToggleSelect(project.id, e)}
           isSelected={isSelected}
           onRename={(e) => onRename(project.id, project.name, e)}
-          onDuplicate={(e) => onDuplicate(project.id, e)}
+          onDuplicate={project.folder ? undefined : (e) => onDuplicate(project.id, e)}
+          folderProject={Boolean(project.folder)}
           onInfo={(e) => onInfo(project, e)}
           onDelete={(e) => onDelete(project.id, e)}
           className={cn(

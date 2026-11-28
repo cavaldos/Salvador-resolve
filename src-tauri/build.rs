@@ -5,6 +5,8 @@ fn main() {
             "write_export_chunk",
             "finish_export_save",
             "abort_export_save",
+            "open_project_folder",
+            "save_project_folder",
         ]),
     ))
     .expect("invalid Tauri build configuration");

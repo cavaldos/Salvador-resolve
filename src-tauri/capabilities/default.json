@@ -1,12 +1,17 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Save a Cutnora export using a native file dialog",
+  "description": "Save exports and open or save user-selected project folders",
   "windows": ["main"],
   "permissions": [
     "allow-begin-export-save",
     "allow-write-export-chunk",
     "allow-finish-export-save",
-    "allow-abort-export-save"
+    "allow-abort-export-save",
+    "allow-open-project-folder",
+    "allow-save-project-folder",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-destroy"
   ]
 }

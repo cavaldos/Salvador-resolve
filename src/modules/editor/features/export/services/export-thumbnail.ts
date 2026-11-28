@@ -77,7 +77,7 @@ export async function exportThumbnail(project: Project, playhead: number) {
         media.set(clip.id, video);
         video.preload = "auto";
         video.muted = true;
-        if (asset.remoteUrl || asset.source?.kind === "remote")
+        if (asset.remoteUrl || asset.source?.kind === "remote" || asset.source?.kind === "folder")
           video.crossOrigin = "anonymous";
         await loadExportMediaElement(video, url, () => false);
         const sourceTime =

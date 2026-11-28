@@ -14,7 +14,8 @@ import {
   supportsOpfs,
   writeFileToOpfs,
 } from "@/modules/core/storage/opfs-media-storage";
-import { resolveMediaAssetBlob } from "@/modules/core/storage/media-source-service";
+import { resolveMediaAssetUrl } from "@/modules/core/storage/media-source-service";
+import { getFolderMediaUrl, type FolderVideo } from "@/modules/core/storage/folder-media-source";
 
 export interface ImportResult {
   asset: MediaAsset;
@@ -255,6 +256,29 @@ export async function processAndStoreMediaFile(
     URL.revokeObjectURL(tempUrl);
   }
 }
+export async function prepareFolderVideo(
+  file: FolderVideo,
+  assetId: string,
+  projectId: string,
+  folderId: string,
+): Promise<{ asset: MediaAsset; thumbnail: StoredThumbnail }> {
+  const url = getFolderMediaUrl(folderId, file.name);
+  const metadata = await extractVideoMetadata(url);
+  const blob = await generateVideoThumbnail(url, metadata.duration, true);
+  const thumbnailId = nanoid();
+  const now = Date.now();
+  return {
+    asset: {
+      id: assetId, projectId, type: "video", name: file.name, size: file.size,
+      mimeType: file.name.toLowerCase().endsWith(".mov") ? "video/quicktime" : "video/mp4",
+      ...metadata, duration: Math.max(0.1, metadata.duration), createdAt: now,
+      blobId: assetId, thumbnailBlobId: thumbnailId, metadataStatus: "ready", waveformStatus: "deferred",
+      source: { kind: "folder", folderId, fileName: file.name, modifiedAt: file.modifiedAt },
+    },
+    thumbnail: { id: thumbnailId, blob, createdAt: now, renderVersion: VIDEO_THUMBNAIL_RENDER_VERSION },
+  };
+}
+
 export function ensureHighQualityThumbnail(
   asset: MediaAsset,
 ): Promise<Blob | null> {
@@ -315,33 +339,25 @@ async function ensureHighQualityThumbnailInternal(
     }
   }
 
-  const original = await resolveMediaAssetBlob(asset).catch(() => null);
-  if (!original) return existing?.blob ?? null;
+  const sourceUrl = await resolveMediaAssetUrl(asset).catch(() => null);
+  if (!sourceUrl) return existing?.blob ?? null;
+  const upgraded = asset.type === "video"
+    ? await generateVideoThumbnail(sourceUrl, asset.duration, asset.source?.kind === "folder")
+    : await generateImageThumbnail(sourceUrl);
+  if (!upgraded.size) return existing?.blob ?? null;
 
-  const sourceUrl = URL.createObjectURL(original);
-  try {
-    const upgraded =
-      asset.type === "video"
-        ? await generateVideoThumbnail(sourceUrl, asset.duration)
-        : await generateImageThumbnail(sourceUrl);
-
-    if (!upgraded.size) return existing?.blob ?? null;
-
-    await db.thumbnails.put({
-      id: asset.thumbnailBlobId,
-      blob: upgraded,
-      createdAt: Date.now(),
-      renderVersion:
-        asset.type === "image"
-          ? IMAGE_THUMBNAIL_RENDER_VERSION
-          : VIDEO_THUMBNAIL_RENDER_VERSION,
-    });
-    objectUrlManager.revokeUrl(asset.thumbnailBlobId);
-    verifiedThumbnailIds.add(asset.thumbnailBlobId);
-    return upgraded;
-  } finally {
-    URL.revokeObjectURL(sourceUrl);
-  }
+  await db.thumbnails.put({
+    id: asset.thumbnailBlobId,
+    blob: upgraded,
+    createdAt: Date.now(),
+    renderVersion:
+      asset.type === "image"
+        ? IMAGE_THUMBNAIL_RENDER_VERSION
+        : VIDEO_THUMBNAIL_RENDER_VERSION,
+  });
+  objectUrlManager.revokeUrl(asset.thumbnailBlobId);
+  verifiedThumbnailIds.add(asset.thumbnailBlobId);
+  return upgraded;
 }
 
 function readBlobImageDimensions(
@@ -396,15 +412,18 @@ function extractVideoMetadata(
       clearTimeout(timeout);
       video.onloadedmetadata = null;
       video.onerror = null;
+      video.removeAttribute("src");
+      video.load();
     };
 
     video.onloadedmetadata = () => {
-      cleanup();
-      resolve({
+      const metadata = {
         width: video.videoWidth || 1920,
         height: video.videoHeight || 1080,
         duration: isFinite(video.duration) ? video.duration : 10,
-      });
+      };
+      cleanup();
+      resolve(metadata);
     };
 
     video.onerror = () => {
@@ -533,9 +552,11 @@ function canvasToThumbnailBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 function generateVideoThumbnail(
   videoUrl: string,
   duration: number,
+  crossOrigin = false,
 ): Promise<Blob> {
   return new Promise((resolve) => {
     const video = document.createElement("video");
+    if (crossOrigin) video.crossOrigin = "anonymous";
     video.preload = "auto";
     video.muted = true;
     video.playsInline = true;
@@ -592,10 +613,14 @@ function generateVideoThumbnail(
       canvas.width = THUMBNAIL_WIDTH;
       canvas.height = THUMBNAIL_HEIGHT;
       const ctx = canvas.getContext("2d");
-      if (ctx && video.videoWidth && video.videoHeight) {
-        drawCoverThumbnail(ctx, video, video.videoWidth, video.videoHeight);
+      try {
+        if (ctx && video.videoWidth && video.videoHeight) {
+          drawCoverThumbnail(ctx, video, video.videoWidth, video.videoHeight);
+        }
+        void canvasToThumbnailBlob(canvas).then(finish).catch(() => finish());
+      } catch {
+        finish();
       }
-      void canvasToThumbnailBlob(canvas).then(finish).catch(() => finish());
     };
 
     video.onerror = () => {

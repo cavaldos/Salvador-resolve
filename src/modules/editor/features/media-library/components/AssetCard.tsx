@@ -4,6 +4,7 @@ import { objectUrlManager } from "@/modules/core/db/object-url-manager";
 import { deleteStoredMediaAsset } from "@/modules/core/storage/media-asset-service";
 import type { MediaAsset } from "@/modules/projects/types";
 import { useProjectStore } from "@/modules/projects";
+import { autosaveService } from "@/modules/projects/services/autosave-service";
 import { useEditorUIStore } from "@/modules/editor/store/useEditorUIStore";
 import { ensureHighQualityThumbnail } from "../services/media-import-service";
 import { addMediaAssetToTimeline } from "../utils/add-media-asset-to-timeline";
@@ -122,7 +123,7 @@ export function AssetCard({
         .filter((clip) => clip.assetId === asset.id) ?? [];
 
     const removedClipIds = new Set(clipsUsingAsset.map((clip) => clip.id));
-    await deleteStoredMediaAsset(asset);
+    if (asset.source?.kind !== "folder") await deleteStoredMediaAsset(asset);
     useProjectStore.getState().removeAsset(asset.id);
     const editorState = useEditorUIStore.getState();
     editorState.setSelectedClipIds(
@@ -143,6 +144,8 @@ export function AssetCard({
           });
         }
       });
+      const project = useProjectStore.getState().currentProject;
+      if (project?.folder) autosaveService.scheduleSave(project);
     }
   };
 

@@ -72,9 +72,9 @@ function EditorContent() {
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-destructive/15 text-destructive mb-4">
           <AlertCircle className="h-6 w-6" />
         </div>
-        <h1 className="text-2xl font-bold text-studio-fg">Project Not Found</h1>
+        <h1 className="text-2xl font-bold text-studio-fg">Could not open project</h1>
         <p className="mt-2 text-sm text-studio-muted max-w-md">
-          The requested project with ID <span className="font-mono text-selection">{projectId}</span> does not exist or was removed from your local browser database.
+          {error || "This project is not available."}
         </p>
         <div className="mt-6 flex items-center gap-3">
           <Button

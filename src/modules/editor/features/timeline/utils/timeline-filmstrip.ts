@@ -45,7 +45,8 @@ async function decodeFilmstrip(asset: MediaAsset, sourceStart: number, sourceDur
   const video = document.createElement("video");
   video.preload = "auto";
   video.muted = true;
-  if (getMediaSourceRef(asset).kind === "remote") video.crossOrigin = "anonymous";
+  const { kind } = getMediaSourceRef(asset);
+  if (kind === "remote" || kind === "folder") video.crossOrigin = "anonymous";
 
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
@@ -73,7 +74,9 @@ async function decodeFilmstrip(asset: MediaAsset, sourceStart: number, sourceDur
 }
 
 export function getVideoFilmstrip(asset: MediaAsset, start: number, duration: number, count: number) {
-  const key = JSON.stringify([asset.id, start, duration, count]);
+  const source = asset.source;
+  const version = source?.kind === "folder" ? [source.folderId, source.modifiedAt] : null;
+  const key = JSON.stringify([asset.id, version, start, duration, count]);
   const existing = cache.get(key);
   if (existing) return existing;
 

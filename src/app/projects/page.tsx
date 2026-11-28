@@ -1,5 +1,7 @@
 import { useEffect, useCallback, useState } from "react";
 import { useNavigate } from "react-router";
+import { isTauri } from "@tauri-apps/api/core";
+import { chooseProjectFolder } from "@/modules/projects/services/folder-project-service";
 import { ProjectsLaunch } from "@/modules/projects/components/ProjectsLaunch";
 import type { ProjectSettings } from "@/modules/projects/types";
 import { autosaveService } from "@/modules/projects/services/autosave-service";
@@ -114,6 +116,20 @@ export default function ProjectsDashboardPage() {
     }
   };
 
+  const handleOpenFolder = async () => {
+    if (isCreating) return;
+    setIsCreating(true);
+    try {
+      const project = await chooseProjectFolder();
+      if (project) navigate(`/editor?project=${project.id}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      useToastStore.getState().showToast(`Could not open folder: ${message}`, "error");
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -138,6 +154,7 @@ export default function ProjectsDashboardPage() {
             busy={isCreating}
             onCreate={(settings) => void handleCreateProject(settings)}
             onImport={(files) => void handleCreateProject(undefined, files)}
+            onOpenFolder={isTauri() ? () => void handleOpenFolder() : undefined}
             onRecord={(record) => void handleCreateProject(undefined, undefined, record)}
           />
           <section aria-labelledby="recent-projects-title" inert={isCreating} className="min-w-0">

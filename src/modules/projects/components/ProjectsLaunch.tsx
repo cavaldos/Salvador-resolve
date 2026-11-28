@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { Camera, ChevronDown, FileCode2, FolderOpen, LayoutTemplate, Plus, Smartphone, Video } from "lucide-react";
+import { Camera, ChevronDown, FileCode2, FolderOpen, FolderPlus, LayoutTemplate, Plus, Smartphone, Video } from "lucide-react";
 import { POPULAR_FORMATS } from "@/modules/editor/features/inspector/constants/canvasPresets";
 import type { ProjectSettings } from "../types";
 
@@ -8,10 +8,11 @@ const formatTitles = ["Widescreen", "Vertical", "Square", "Ultra-Wide"];
 const formatSubtitles = ["YouTube", "Reels", "Social Feed", "Cinematic"];
 const actionClass = "flex w-full items-center gap-3 rounded-xl border border-studio-border bg-studio-panel-raised/65 px-3.5 py-2.5 text-left transition-colors enabled:cursor-pointer enabled:hover:bg-studio-hover disabled:text-studio-muted";
 
-export function ProjectsLaunch({ busy, onCreate, onImport, onRecord }: {
+export function ProjectsLaunch({ busy, onCreate, onImport, onOpenFolder, onRecord }: {
   busy: boolean;
   onCreate: (settings?: Partial<ProjectSettings>) => void;
   onImport: (files: File[]) => void;
+  onOpenFolder?: () => void;
   onRecord: (mode: "screen" | "camera") => void;
 }) {
   const picker = useRef<HTMLInputElement>(null);
@@ -69,10 +70,17 @@ export function ProjectsLaunch({ busy, onCreate, onImport, onRecord }: {
             <FolderOpen className="size-4 shrink-0 text-cyan-700 dark:text-cyan-300" aria-hidden="true" />
             <span><span className="block text-sm font-semibold">Import Media</span><span className="block text-xs text-studio-muted">Start from your media files</span></span>
           </button>
-          <button type="button" disabled className={actionClass}>
-            <FileCode2 className="size-4 shrink-0" aria-hidden="true" />
-            <span><span className="block text-sm font-semibold">Open Project File</span><span className="block text-xs">Not available in Cutnora</span></span>
-          </button>
+          {onOpenFolder ? (
+            <button type="button" disabled={busy} onClick={onOpenFolder} className={actionClass}>
+              <FolderPlus className="size-4 shrink-0 text-cyan-700 dark:text-cyan-300" aria-hidden="true" />
+              <span><span className="block text-sm font-semibold">Open Folder</span><span className="block text-xs text-studio-muted">Use existing videos and save the project there</span></span>
+            </button>
+          ) : (
+            <button type="button" disabled className={actionClass}>
+              <FileCode2 className="size-4 shrink-0" aria-hidden="true" />
+              <span><span className="block text-sm font-semibold">Open Project File</span><span className="block text-xs">Not available in Cutnora</span></span>
+            </button>
+          )}
           <button type="button" disabled className={actionClass}>
             <LayoutTemplate className="size-4 shrink-0" aria-hidden="true" />
             <span><span className="block text-sm font-semibold">Templates</span><span className="block text-xs">Not available in Cutnora</span></span>

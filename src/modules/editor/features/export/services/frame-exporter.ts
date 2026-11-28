@@ -1,7 +1,6 @@
 import {
   ALL_FORMATS,
   AudioBufferSource,
-  BlobSource,
   BufferTarget,
   CanvasSink,
   VideoSample,
@@ -11,7 +10,6 @@ import {
   Output,
   Quality,
   StreamTarget,
-  UrlSource,
   WebMOutputFormat,
   canEncodeAudio,
   canEncodeVideo,
@@ -22,10 +20,8 @@ import {
 import type { Project } from "@/modules/projects/types";
 import type { TimelineClip } from "@/modules/editor/types";
 import { db } from "@/modules/core/db/database";
-import {
-  resolveMediaAssetBlob,
-  resolveMediaAssetUrl,
-} from "@/modules/core/storage/media-source-service";
+import { resolveMediaAssetUrl } from "@/modules/core/storage/media-source-service";
+import { resolveMediaInputSource } from "@/modules/core/storage/media-input-source";
 import { loadTextFonts } from "@/modules/editor/features/text/utils/text-fonts";
 import { renderExportFrame, type ExportMediaSource } from "./exportCompositor";
 import { loadExportMediaElement } from "./export-media-loader";
@@ -187,10 +183,7 @@ export async function runFrameExport(
         );
         media.set(asset.id, image);
       } else {
-        const source =
-          asset.remoteUrl || asset.source?.kind === "remote"
-            ? new UrlSource(await resolveMediaAssetUrl(asset))
-            : new BlobSource(await resolveMediaAssetBlob(asset));
+        const source = await resolveMediaInputSource(asset);
         const input = new Input({ formats: ALL_FORMATS, source });
         inputs.set(asset.id, input);
         if (!(await input.canRead()))

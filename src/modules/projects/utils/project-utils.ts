@@ -1,4 +1,28 @@
-import type { Project } from "../types";
+import { nanoid } from "nanoid";
+import type { Project, ProjectSettings } from "../types";
+
+export function makeProject(name: string, settings: Partial<ProjectSettings> = {}): Project {
+  const now = Date.now();
+  return {
+    id: nanoid(),
+    name,
+    createdAt: now,
+    updatedAt: now,
+    schemaVersion: 1,
+    settings: {
+      width: 1920,
+      height: 1080,
+      aspectRatio: "16:9",
+      fps: 30,
+      duration: 10,
+      backgroundColor: "#000000",
+      masterVolume: 1,
+      ...settings,
+    },
+    tracks: [],
+    assetIds: [],
+  };
+}
 
 export function getProjectDuration(project: Project): number {
   let maxTime = 0;

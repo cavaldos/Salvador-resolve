@@ -209,6 +209,7 @@ export async function runExportTask(
         );
         element.muted = true;
         element.preload = "auto";
+        if (asset.source?.kind === "folder") element.crossOrigin = "anonymous";
         if (element instanceof HTMLVideoElement) element.playsInline = true;
         await loadExportMediaElement(element, url, checkIsCancelled);
         mediaElementsMap.set(clip.id, element);

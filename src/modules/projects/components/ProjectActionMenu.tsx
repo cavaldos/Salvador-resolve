@@ -8,7 +8,8 @@ export interface ProjectActionMenuProps {
   onSelect?: (e: React.MouseEvent) => void;
   isSelected?: boolean;
   onRename: (e: React.MouseEvent) => void;
-  onDuplicate: (e: React.MouseEvent) => void;
+  onDuplicate?: (e: React.MouseEvent) => void;
+  folderProject?: boolean;
   onInfo: (e: React.MouseEvent) => void;
   onDelete: (e: React.MouseEvent) => void;
   className?: string;
@@ -21,6 +22,7 @@ export function ProjectActionMenu({
   isSelected,
   onRename,
   onDuplicate,
+  folderProject,
   onInfo,
   onDelete,
   className,
@@ -91,19 +93,20 @@ export function ProjectActionMenu({
         <span>Rename</span>
       </button>
 
-      {/* Duplicate */}
-      <button
-        type="button"
-        role="menuitem"
-        onClick={(e) => {
-          onClose();
-          onDuplicate(e);
-        }}
-        className="group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors cursor-pointer"
-      >
-        <Copy className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-        <span>Duplicate</span>
-      </button>
+      {onDuplicate && (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={(e) => {
+            onClose();
+            onDuplicate(e);
+          }}
+          className="group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors cursor-pointer"
+        >
+          <Copy className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+          <span>Duplicate</span>
+        </button>
+      )}
 
       {/* Info */}
       <button
@@ -130,7 +133,7 @@ export function ProjectActionMenu({
         className="group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
       >
         <Trash2 className="h-4 w-4 text-destructive" />
-        <span>Delete</span>
+        <span>{folderProject ? "Remove from Recents" : "Delete"}</span>
       </button>
     </div>
   );

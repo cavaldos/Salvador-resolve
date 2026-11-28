@@ -92,7 +92,7 @@ export function ProjectTopBar({ onOpenHelp }: ProjectTopBarProps) {
       if (project) {
         autosaveService.scheduleSave(project, 0);
         await autosaveService.executeSave();
-        if (autosaveService.getStatus() === "error") return;
+        if (autosaveService.getStatus() === "error" && (!project.folder || !autosaveService.canLeaveFolder())) return;
       }
       navigate(href);
     } catch {

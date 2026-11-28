@@ -1,4 +1,7 @@
+import { isTauri } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { db } from '@/modules/core/db/database';
+import { persistProject } from './folder-project-service';
 import { useToastStore } from '@/shared/components/ui/Toast/useToastStore';
 import type { Project } from '../types';
 
@@ -7,7 +10,10 @@ export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 class AutosaveService {
   private status: SaveStatus = 'idle';
   private pendingProject: Project | null = null;
-  private timer: NodeJS.Timeout | null = null;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private inFlight: Promise<void> | null = null;
+  private savingFolder = false;
+  private closing = false;
   private listeners = new Set<(status: SaveStatus) => void>();
 
   constructor() {
@@ -15,6 +21,22 @@ class AutosaveService {
       window.addEventListener('beforeunload', () => {
         this.flushPendingSaveSync();
       });
+      if (isTauri()) {
+        void getCurrentWindow().onCloseRequested(async (event) => {
+          if (this.closing) {
+            event.preventDefault();
+            return;
+          }
+          if (!this.savingFolder && !this.pendingProject?.folder) return;
+          this.closing = true;
+          try {
+            await this.executeSave();
+            if (!this.canLeaveFolder()) event.preventDefault();
+          } finally {
+            this.closing = false;
+          }
+        }).catch((error) => console.error('Could not register project close handler:', error));
+      }
     }
   }
 
@@ -45,27 +67,45 @@ class AutosaveService {
     }, delayMs);
   }
 
-  public async executeSave(): Promise<void> {
-    if (!this.pendingProject) return;
-    const projectToSave = this.pendingProject;
-    this.pendingProject = null;
+  public executeSave(): Promise<void> {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    this.inFlight ??= this.savePendingProjects().finally(() => { this.inFlight = null; });
+    return this.inFlight;
+  }
 
-    try {
-      const updatedProject: Project = {
-        ...projectToSave,
-        updatedAt: Date.now(),
-      };
-      await db.projects.put(updatedProject);
-      this.setStatus('saved');
-    } catch (err) {
-      console.error('Failed to autosave project:', err);
-      this.setStatus('error');
-      useToastStore.getState().showToast('Failed to save project', 'error');
+  public canLeaveFolder(): boolean {
+    if (!this.pendingProject?.folder || this.status !== 'error') return true;
+    if (!window.confirm('The project could not be saved. Leave without saving these changes?')) return false;
+    this.pendingProject = null;
+    this.setStatus('idle');
+    return true;
+  }
+
+  private async savePendingProjects(): Promise<void> {
+    while (this.pendingProject) {
+      const project = this.pendingProject;
+      this.pendingProject = null;
+      this.savingFolder = Boolean(project.folder);
+      this.setStatus('saving');
+      try {
+        await persistProject({ ...project, updatedAt: Date.now() });
+      } catch (error) {
+        console.error('Failed to autosave project:', error);
+        if (project.folder) this.pendingProject ??= project;
+        this.setStatus('error');
+        const detail = typeof error === 'string' ? `: ${error}` : '';
+        useToastStore.getState().showToast(`Failed to save project${detail}`, 'error');
+        return;
+      } finally {
+        this.savingFolder = false;
+      }
+      if (!this.pendingProject) this.setStatus('saved');
     }
   }
 
   public flushPendingSaveSync(): void {
-    if (this.pendingProject) {
+    if (this.pendingProject && !this.pendingProject.folder) {
       const projectToSave = this.pendingProject;
       const updatedProject: Project = {
         ...projectToSave,

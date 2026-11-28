@@ -5,6 +5,8 @@ import { deleteStoredMediaAsset } from "@/modules/core/storage/media-asset-servi
 import type { Project } from "../types";
 import { useProjectSort } from "./useProjectSort";
 import { generateDuplicateProjectName } from "../utils/project-utils";
+import { persistProject, reopenFolderProject } from "../services/folder-project-service";
+import { useToastStore } from "@/shared/components/ui/Toast/useToastStore";
 
 export interface DeleteTarget {
   type: "single" | "batch";
@@ -97,7 +99,7 @@ export function useProjects() {
     e.preventDefault();
     e.stopPropagation();
     const sourceProject = projects.find((p) => p.id === id);
-    if (!sourceProject) return;
+    if (!sourceProject || sourceProject.folder) return;
 
     const newId = nanoid();
     const newName = generateDuplicateProjectName(
@@ -144,27 +146,22 @@ export function useProjects() {
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
 
-    if (deleteTarget.type === "single" && deleteTarget.project) {
-      const id = deleteTarget.project.id;
-      const assets = await db.assets.where("projectId").equals(id).toArray();
-      for (const asset of assets) {
-        await deleteStoredMediaAsset(asset);
+    const ids = deleteTarget.type === "single"
+      ? [deleteTarget.project?.id]
+      : selectedIds;
+    for (const id of ids) {
+      if (!id) continue;
+      const project = await db.projects.get(id);
+      if (!project) continue;
+      // Folder projects are only removed from Recents; imported media can still be referenced on disk.
+      if (!project.folder) {
+        const assets = await db.assets.where("projectId").equals(id).toArray();
+        for (const asset of assets) await deleteStoredMediaAsset(asset);
       }
       await db.projects.delete(id);
-      setProjects((prev) => prev.filter((p) => p.id !== id));
-      setSelectedIds((prev) => prev.filter((i) => i !== id));
-    } else if (deleteTarget.type === "batch") {
-      for (const id of selectedIds) {
-        const assets = await db.assets.where("projectId").equals(id).toArray();
-        for (const asset of assets) {
-          await deleteStoredMediaAsset(asset);
-        }
-        await db.projects.delete(id);
-      }
-      setProjects((prev) => prev.filter((p) => !selectedIds.includes(p.id)));
-      setSelectedIds([]);
     }
-
+    setProjects((prev) => prev.filter((project) => !ids.includes(project.id)));
+    setSelectedIds((prev) => prev.filter((id) => !ids.includes(id)));
     setDeleteTarget(null);
   };
 
@@ -174,10 +171,13 @@ export function useProjects() {
     const duplicatedList: Project[] = [];
 
     const currentNames = projects.map((p) => p.name);
+    if (projects.some((project) => project.folder && selectedIds.includes(project.id))) {
+      useToastStore.getState().showToast("Folder projects were not duplicated.", "warning");
+    }
 
     for (const id of selectedIds) {
       const sourceProject = projects.find((p) => p.id === id);
-      if (!sourceProject) continue;
+      if (!sourceProject || sourceProject.folder) continue;
 
       const newId = nanoid();
       const newName = generateDuplicateProjectName(sourceProject.name, currentNames);
@@ -226,13 +226,18 @@ export function useProjects() {
   const handleSaveRename = async (newName: string) => {
     if (!renameTarget) return;
     if (newName && newName !== renameTarget.name) {
-      await db.projects.update(renameTarget.id, {
-        name: newName,
-        updatedAt: Date.now(),
-      });
-      setProjects((prev) =>
-        prev.map((p) => (p.id === renameTarget.id ? { ...p, name: newName } : p)),
-      );
+      try {
+        const cached = await db.projects.get(renameTarget.id);
+        if (!cached) return;
+        const project = cached.folder ? await reopenFolderProject(cached.folder.id, cached.id) : cached;
+        const renamed = { ...project, name: newName, updatedAt: Date.now() };
+        await persistProject(renamed);
+        setProjects((prev) => prev.map((p) => (p.id === renamed.id ? renamed : p)));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        useToastStore.getState().showToast(`Could not rename project: ${message}`, "error");
+        return;
+      }
     }
     setRenameTarget(null);
   };

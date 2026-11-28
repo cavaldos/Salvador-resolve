@@ -20,6 +20,8 @@ import { historyManager } from "@/modules/editor/store/useHistoryStore";
 import { usePlaybackStore } from "@/modules/editor/store/usePlaybackStore";
 import { useEditorUIStore } from "@/modules/editor/store/useEditorUIStore";
 import { autosaveService } from "../services/autosave-service";
+import { reopenFolderProject } from "../services/folder-project-service";
+import { makeProject } from "../utils/project-utils";
 import { db } from "@/modules/core/db/database";
 
 import { mediaAssetSourceExists } from "@/modules/core/storage/media-source-service";
@@ -104,29 +106,7 @@ export const useProjectStore = create<ProjectState>()(
     error: null,
 
     createProject: async (name = "Untitled Project", customSettings = {}) => {
-      const defaultSettings: ProjectSettings = {
-        width: 1920,
-        height: 1080,
-        aspectRatio: "16:9",
-        fps: 30,
-        duration: 10,
-        backgroundColor: "#000000",
-        masterVolume: 1,
-        ...customSettings,
-      };
-
-      const defaultTracks: Track[] = [];
-
-      const newProject: Project = {
-        id: nanoid(),
-        name,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        schemaVersion: 1,
-        settings: defaultSettings,
-        tracks: defaultTracks,
-        assetIds: [],
-      };
+      const newProject = makeProject(name, customSettings);
 
       await db.projects.put(newProject);
       historyManager.clear();
@@ -157,10 +137,18 @@ export const useProjectStore = create<ProjectState>()(
       });
 
       try {
-        const project = await db.projects.get(id);
+        const cached = await db.projects.get(id);
+        const project = cached?.folder ? await reopenFolderProject(cached.folder.id, id) : cached;
         if (project) {
           removeEmptyTracks(project);
           historyManager.clear();
+          if (project.folder) {
+            useEditorUIStore.setState({
+              activeTool: "media", selectedClipIds: [], activeTrackId: null,
+              inspectorMode: "clip", scrollLeft: 0, isFullscreen: false,
+            });
+            usePlaybackStore.setState({ isPlaying: false, playhead: 0 });
+          }
           set((state) => {
             state.currentProject = project;
             if (state.currentProject) {

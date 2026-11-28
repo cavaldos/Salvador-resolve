@@ -16,7 +16,8 @@ export interface ProjectSettings {
 export type MediaSourceRef =
   | { kind: "opfs"; path: string }
   | { kind: "indexeddb"; blobId: string }
-  | { kind: "remote"; url: string };
+  | { kind: "remote"; url: string }
+  | { kind: "folder"; folderId: string; fileName: string; modifiedAt: number };
 
 export type MediaProcessingStatus =
   "pending" | "copying" | "analyzing" | "ready" | "error";
@@ -57,4 +58,5 @@ export interface Project {
   settings: ProjectSettings;
   tracks: Track[];
   assetIds: string[];
+  folder?: { id: string; files: { id: string; name: string }[] };
 }

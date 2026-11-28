@@ -1,5 +1,11 @@
 # Cutnora Desktop
 
+## Open a project folder
+
+On the Projects screen, choose **Open Folder** and select an existing directory. Cutnora links supported top-level videos (MP4, MOV, M4V, WebM, and MKV when the installed WebView supports the codec) without copying them. Videos appear in Media; a new timeline starts empty. Edits autosave to `Cutnora.cutnora.json` in the selected folder. Reopen the same folder or its recent project to continue editing.
+
+Keep the project file and videos together. If the folder moves, choose it again with **Open Folder**. Additional files added via **Import Media** are still managed by Cutnora on this device; they are not bundled into the folder. **New Project** continues to work without a folder.
+
 Tauri 2 packages the Vite build from `dist/`. The installed app needs neither Node.js nor a local web server. It opens the Projects workspace by default; project links use `/editor?project=…`. In development, Tauri starts Vite on `http://localhost:3000` so existing WebView project storage keeps the same origin. Stop any previous dev server on port 3000 before starting.
 
 ## Run locally

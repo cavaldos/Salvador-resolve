@@ -1,6 +1,7 @@
 import { db } from "@/modules/core/db/database";
 import { objectUrlManager } from "@/modules/core/db/object-url-manager";
 import { getOpfsFile } from "./opfs-media-storage";
+import { getFolderMediaUrl } from "./folder-media-source";
 import type { MediaAsset, MediaSourceRef } from "@/modules/projects/types";
 
 export function getMediaSourceRef(asset: MediaAsset): MediaSourceRef {
@@ -31,12 +32,13 @@ export async function resolveMediaAssetBlob(asset: MediaAsset): Promise<Blob> {
       ? record.blob.slice(0, record.blob.size, mimeType)
       : record.blob;
   }
-  throw new Error("Remote media does not have a local Blob.");
+  throw new Error("Linked media does not have a managed local Blob.");
 }
 
 export async function resolveMediaAssetUrl(asset: MediaAsset): Promise<string> {
   const source = getMediaSourceRef(asset);
   if (source.kind === "remote") return source.url;
+  if (source.kind === "folder") return getFolderMediaUrl(source.folderId, source.fileName);
 
   const key = source.kind === "opfs" ? "opfs:" + source.path : source.blobId;
   const cached = objectUrlManager.getUrl(key);
@@ -47,7 +49,7 @@ export async function resolveMediaAssetUrl(asset: MediaAsset): Promise<string> {
 
 export function revokeMediaAssetUrl(asset: MediaAsset): void {
   const source = getMediaSourceRef(asset);
-  if (source.kind === "remote") return;
+  if (source.kind === "remote" || source.kind === "folder") return;
   objectUrlManager.revokeUrl(
     source.kind === "opfs" ? "opfs:" + source.path : source.blobId,
   );
@@ -59,7 +61,8 @@ export async function mediaAssetSourceExists(
   const source = getMediaSourceRef(asset);
   if (source.kind === "remote") return true;
   try {
-    await resolveMediaAssetBlob(asset);
+    if (source.kind === "folder") getFolderMediaUrl(source.folderId, source.fileName);
+    else await resolveMediaAssetBlob(asset);
     return true;
   } catch {
     return false;
