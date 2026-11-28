@@ -332,12 +332,30 @@ export function resetClipToOriginal(tracks: Track[], clipId: string): Track[] {
   );
 }
 
-export function deleteClipsFromTracks(tracks: Track[], clipIds: string[]): Track[] {
+export function deleteClipsFromTracks(tracks: Track[], clipIds: string[], ripple = false): Track[] {
   const idsToRemove = new Set(clipIds);
-  return tracks.map((track) => ({
-    ...track,
-    clips: track.clips.filter((clip) => !idsToRemove.has(clip.id)),
-  }));
+  return tracks.map((track) => {
+    if (track.locked || !track.clips.some((clip) => idsToRemove.has(clip.id))) return track;
+    if (!ripple) return { ...track, clips: track.clips.filter((clip) => !idsToRemove.has(clip.id)) };
+
+    let removedDuration = 0;
+    const clips: TimelineClip[] = [];
+    for (const clip of [...track.clips].sort((a, b) => a.timelineStart - b.timelineStart)) {
+      if (idsToRemove.has(clip.id)) removedDuration += clip.timelineDuration;
+      else clips.push({ ...clip, timelineStart: Math.max(0, clip.timelineStart - removedDuration) });
+    }
+    return { ...track, clips };
+  });
+}
+
+export function getTimelineGapBefore(track: Track, clip: TimelineClip) {
+  if (track.locked) return 0;
+  const previousEnd = track.clips.reduce((end, other) =>
+    other.id !== clip.id && other.timelineStart <= clip.timelineStart
+      ? Math.max(end, other.timelineStart + other.timelineDuration)
+      : end, 0);
+  const gap = clip.timelineStart - previousEnd;
+  return gap >= 0.001 ? gap : 0;
 }
 
 export function duplicateClipsInTracks(tracks: Track[], clipIds: string[]): Track[] {

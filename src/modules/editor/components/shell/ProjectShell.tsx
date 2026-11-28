@@ -2,7 +2,7 @@ import React, { lazy, Suspense, useEffect, useState } from "react";
 import { ProjectTopBar } from "../header/ProjectTopBar";
 import { ProjectToolRail } from "../rail/ProjectToolRail";
 import { InspectorDockButton } from "../panels/InspectorDockButton";
-import { SidebarToggleButton } from "../panels/SidebarToggleButton";
+import { maximumTimelineHeight } from "./workspaceLayouts";
 import { InspectorPanel } from "@/modules/editor/features/inspector/components/InspectorPanel";
 import { useProjectStore } from "@/modules/projects";
 import { ContextualPanel } from "../panels/ContextualPanel";
@@ -22,6 +22,9 @@ const ExportModal = lazy(() =>
   ),
 );
 
+const MEDIA_RAIL_WIDTH = 66;
+const WORKSPACE_CHROME_WIDTH = MEDIA_RAIL_WIDTH + 20 + 12;
+
 function maximumLeftPanelWidth(
   viewportWidth: number,
   hasRightInspector: boolean,
@@ -29,7 +32,7 @@ function maximumLeftPanelWidth(
 ) {
   // Reserve the rail, outer spacing, dividers, and space for the live preview.
   const availableWidth = hasRightInspector
-    ? viewportWidth - rightPanelWidth - 64 - 32 - 240
+    ? viewportWidth - rightPanelWidth - WORKSPACE_CHROME_WIDTH - 240
     : Infinity;
   return Math.max(
     350,
@@ -38,7 +41,7 @@ function maximumLeftPanelWidth(
 }
 
 function maximumRightPanelWidth(viewportWidth: number, leftPanelWidth: number) {
-  const availableWidth = viewportWidth - leftPanelWidth - 64 - 32 - 240;
+  const availableWidth = viewportWidth - leftPanelWidth - WORKSPACE_CHROME_WIDTH - 240;
   return Math.max(320, Math.min(480, Math.floor(availableWidth)));
 }
 
@@ -46,14 +49,19 @@ export function ProjectShell() {
   const clipInspectorSide = useEditorUIStore(
     (state) => state.clipInspectorSide,
   );
-  const selectedClipIds = useEditorUIStore((state) => state.selectedClipIds);
   const setSelectedClipIds = useEditorUIStore(
     (state) => state.setSelectedClipIds,
   );
-  const currentProjectId = useProjectStore(
-    (state) => state.currentProject?.id,
+  const currentProjectId = useProjectStore((state) => state.currentProject?.id);
+  const workspaceLayout = useEditorUIStore((state) => state.workspaceLayout);
+  const isInspectorCollapsed = useEditorUIStore(
+    (state) => state.isInspectorCollapsed,
   );
-  const showRightInspector = clipInspectorSide === "right";
+  const showRightInspector =
+    !isInspectorCollapsed && clipInspectorSide === "right";
+  const playerLeft = workspaceLayout === "tall-player-left";
+  const playerRight = workspaceLayout === "tall-player-right";
+  const tallPlayer = playerLeft || playerRight;
   const isLeftSidebarCollapsed = useEditorUIStore(
     (state) => state.isLeftSidebarCollapsed,
   );
@@ -101,11 +109,17 @@ export function ProjectShell() {
       }
       const maximumRightWidth = maximumRightPanelWidth(
         window.innerWidth,
-        useEditorUIStore.getState().leftPanelWidth,
+        isLeftSidebarCollapsed ? 0 : useEditorUIStore.getState().leftPanelWidth,
       );
       if (rightPanelWidth > maximumRightWidth) {
         setRightPanelWidth(maximumRightWidth);
       }
+      const maxHeight = maximumTimelineHeight(
+        workspaceLayout,
+        window.innerHeight,
+      );
+      if (useEditorUIStore.getState().timelineHeight > maxHeight)
+        setTimelineHeight(maxHeight);
     };
 
     clampPanelToViewport();
@@ -117,6 +131,9 @@ export function ProjectShell() {
     setLeftPanelWidth,
     setRightPanelWidth,
     showRightInspector,
+    isLeftSidebarCollapsed,
+    setTimelineHeight,
+    workspaceLayout,
   ]);
 
   useEffect(() => {
@@ -152,44 +169,24 @@ export function ProjectShell() {
     const currentWidth = useEditorUIStore.getState().rightPanelWidth;
     const maximumWidth = maximumRightPanelWidth(
       window.innerWidth,
-      useEditorUIStore.getState().leftPanelWidth,
+      isLeftSidebarCollapsed ? 0 : useEditorUIStore.getState().leftPanelWidth,
     );
     setRightPanelWidth(
       Math.min(maximumWidth, Math.max(320, currentWidth - delta)),
     );
   };
 
-  const handleRightWidthResizeEnd = () => {
-    try {
-      localStorage.setItem(
-        "cutnora_right_panel_width",
-        String(useEditorUIStore.getState().rightPanelWidth),
-      );
-      localStorage.setItem(
-        "cutnora_timeline_height",
-        String(useEditorUIStore.getState().timelineHeight),
-      );
-    } catch {}
-  };
-
   const handleHeightResize = (delta: number) => {
     const currentHeight = useEditorUIStore.getState().timelineHeight;
-    const responsiveMaximum = Math.min(
-      500,
-      Math.floor(window.innerHeight * 0.45),
+    const responsiveMaximum = maximumTimelineHeight(
+      workspaceLayout,
+      window.innerHeight,
     );
     const newHeight = Math.min(
       responsiveMaximum,
       Math.max(120, currentHeight - delta),
     );
     setTimelineHeight(newHeight);
-  };
-
-  const handleHeightResizeEnd = () => {
-    const currentHeight = useEditorUIStore.getState().timelineHeight;
-    try {
-      localStorage.setItem("cutnora_timeline_height", String(currentHeight));
-    } catch {}
   };
 
   const handleCornerResize = (deltaX: number, deltaY: number) => {
@@ -206,9 +203,9 @@ export function ProjectShell() {
       Math.max(350, currentWidth + deltaX),
     );
 
-    const responsiveMaximumHeight = Math.min(
-      500,
-      Math.floor(window.innerHeight * 0.45),
+    const responsiveMaximumHeight = maximumTimelineHeight(
+      workspaceLayout,
+      window.innerHeight,
     );
     const newHeight = Math.min(
       responsiveMaximumHeight,
@@ -219,23 +216,17 @@ export function ProjectShell() {
     setTimelineHeight(newHeight);
   };
 
-  const handleCornerResizeEnd = () => {
-    const currentWidth = useEditorUIStore.getState().leftPanelWidth;
-    const currentHeight = useEditorUIStore.getState().timelineHeight;
-    try {
-      localStorage.setItem("cutnora_panel_width", String(currentWidth));
-      localStorage.setItem("cutnora_timeline_height", String(currentHeight));
-    } catch {}
-  };
-
   const handleRightCornerResize = (deltaX: number, deltaY: number) => {
     const currentWidth = useEditorUIStore.getState().rightPanelWidth;
     const currentHeight = useEditorUIStore.getState().timelineHeight;
     const maximumWidth = maximumRightPanelWidth(
       window.innerWidth,
-      useEditorUIStore.getState().leftPanelWidth,
+      isLeftSidebarCollapsed ? 0 : useEditorUIStore.getState().leftPanelWidth,
     );
-    const maximumHeight = Math.min(500, Math.floor(window.innerHeight * 0.45));
+    const maximumHeight = maximumTimelineHeight(
+      workspaceLayout,
+      window.innerHeight,
+    );
 
     setRightPanelWidth(
       Math.min(maximumWidth, Math.max(320, currentWidth - deltaX)),
@@ -245,117 +236,137 @@ export function ProjectShell() {
     );
   };
 
+  const mediaWidth = isLeftSidebarCollapsed
+    ? "0px"
+    : `${leftPanelWidth + MEDIA_RAIL_WIDTH}px`;
+  const propsWidth = showRightInspector ? `${rightPanelWidth}px` : "0px";
+  const mediaDivider =
+    !isLeftSidebarCollapsed && (!tallPlayer || showRightInspector);
+  const leftGap = mediaDivider ? "6px" : "0px";
+  const rightGap = showRightInspector && !tallPlayer ? "6px" : "0px";
+  const previewWidth = "minmax(0, 1fr)";
+  // Grid placement changes without remounting the program monitor or timeline.
+  const dockWidth =
+    isLeftSidebarCollapsed && !showRightInspector
+      ? "minmax(0, 1fr)"
+      : mediaWidth;
+  let gridTemplateColumns = `${mediaWidth} ${leftGap} ${previewWidth} ${rightGap} ${propsWidth}`;
+  let gridTemplateAreas =
+    '"media left preview right props" "split split split split split" "timeline timeline timeline timeline timeline"';
+  if (playerLeft) {
+    gridTemplateColumns = `${previewWidth} 6px ${dockWidth} ${leftGap} ${propsWidth}`;
+    gridTemplateAreas =
+      '"preview . media left props" "preview . split split split" "preview . timeline timeline timeline"';
+  } else if (playerRight) {
+    gridTemplateColumns = `${dockWidth} ${leftGap} ${propsWidth} 6px ${previewWidth}`;
+    gridTemplateAreas =
+      '"media left props . preview" "split split split . preview" "timeline timeline timeline . preview"';
+  }
+
   return (
     <div className="relative flex h-dvh w-screen flex-col overflow-hidden bg-studio-bg text-studio-fg select-none">
-      {/* Top 56px Bar */}
       <ProjectTopBar onOpenHelp={() => setIsShortcutsOpen(true)} />
 
-      {/* Main Workspace Area with outer margins and matching 8px gap */}
-      <div className="flex flex-1 flex-col overflow-hidden relative px-2.5 pb-2.5 pt-1.5 bg-studio-bg">
-        {/* Upper Workspace: Left Sidebar Card + Preview Stage Card */}
-        <div className="flex flex-1 min-h-0 relative z-30">
-          {/* Left Sidebar Card: Tool Rail + Contextual Panel */}
-          <div
-            data-studio-sidebar
-            className={`flex h-full shrink-0 overflow-hidden rounded-md border border-studio-border bg-studio-panel shadow-xs ${isLeftSidebarCollapsed ? "hidden" : ""}`}
-          >
-            {/* Left 64px Tool Rail */}
-            <ProjectToolRail />
-
-            {/* Contextual Panel */}
-            <div
-              style={{
-                width: `${Math.round(leftPanelWidth)}px`,
-                minWidth: "350px",
-              }}
-              className="h-full shrink-0 overflow-hidden"
-            >
-              <ErrorBoundary
-                fallbackTitle="Panel Error"
-                fallbackMessage="Contextual panel encountered an error."
-              >
-                <ContextualPanel
-                  canvasOnly={showRightInspector}
-                  sidebarAction={<SidebarToggleButton />}
-                  inspectorDockAction={
-                    showRightInspector ? undefined : <InspectorDockButton />
-                  }
-                />
-              </ErrorBoundary>
-            </div>
-          </div>
-
-          {/* Panel Width Resizable Divider with Corner Handle at T-Junction */}
-          {!isLeftSidebarCollapsed && (
-            <ResizableDivider
-              orientation="vertical"
-              onResize={handleWidthResize}
-              onResizeEnd={handleCornerResizeEnd}
-              hasCornerHandle={true}
-              onCornerResize={handleCornerResize}
-            />
-          )}
-
-          {isLeftSidebarCollapsed && (
-            <div className="absolute left-2 top-2 z-40">
-              <SidebarToggleButton floating />
-            </div>
-          )}
-
-          {/* Center Preview Stage Card */}
-          <div className="flex-1 h-full min-w-0 overflow-hidden rounded-md border border-studio-border bg-studio-panel shadow-xs">
+      <div
+        data-workspace-layout={workspaceLayout}
+        className="relative grid min-h-0 flex-1 overflow-hidden px-2.5 pb-2.5 pt-1.5"
+        style={{
+          gridTemplateColumns,
+          gridTemplateAreas,
+          gridTemplateRows: `minmax(0, 1fr) 6px ${timelineHeight}px`,
+        }}
+      >
+        <div
+          data-studio-sidebar
+          style={{ gridArea: "media" }}
+          className={`min-w-0 overflow-hidden rounded-md border border-studio-border bg-studio-panel shadow-xs ${isLeftSidebarCollapsed ? "hidden" : "flex"}`}
+        >
+          <ProjectToolRail />
+          <div className="min-w-0 flex-1 overflow-hidden">
             <ErrorBoundary
-              fallbackTitle="Stage Preview Error"
-              fallbackMessage="Stage failed to render preview frame."
+              fallbackTitle="Panel Error"
+              fallbackMessage="Contextual panel encountered an error."
             >
-              <PreviewStage />
+              <ContextualPanel
+                canvasOnly={
+                  clipInspectorSide === "right" || isInspectorCollapsed
+                }
+                inspectorDockAction={
+                  clipInspectorSide === "left" && !isInspectorCollapsed ? (
+                    <InspectorDockButton />
+                  ) : undefined
+                }
+              />
             </ErrorBoundary>
           </div>
-          {showRightInspector && (
-            <>
+        </div>
+        {mediaDivider && (
+          <ResizableDivider
+            style={{ gridArea: "left" }}
+            orientation="vertical"
+            onResize={handleWidthResize}
+            hasCornerHandle
+            onCornerResize={handleCornerResize}
+          />
+        )}
+
+        <div
+          data-workspace-preview
+          style={{ gridArea: "preview" }}
+          className="min-w-0 overflow-hidden rounded-md border border-studio-border bg-studio-panel shadow-xs"
+        >
+          <ErrorBoundary
+            fallbackTitle="Stage Preview Error"
+            fallbackMessage="Stage failed to render preview frame."
+          >
+            <PreviewStage />
+          </ErrorBoundary>
+        </div>
+        {showRightInspector && (
+          <>
+            {!tallPlayer && (
               <ResizableDivider
+                style={{ gridArea: "right" }}
                 orientation="vertical"
                 aria-label="Resize Clip Properties panel"
                 aria-valuemin={320}
                 aria-valuemax={maximumRightPanelWidth(
-                  typeof window === "undefined" ? 1440 : window.innerWidth,
-                  leftPanelWidth,
+                  window.innerWidth,
+                  isLeftSidebarCollapsed ? 0 : leftPanelWidth,
                 )}
                 aria-valuenow={rightPanelWidth}
                 onResize={handleRightWidthResize}
-                onResizeEnd={handleRightWidthResizeEnd}
                 hasCornerHandle
                 onCornerResize={handleRightCornerResize}
               />
-              <aside
-                aria-label="Clip Properties"
-                style={{ width: `${rightPanelWidth}px` }}
-                className="h-full min-w-[320px] max-w-[480px] shrink-0 overflow-hidden rounded-md border border-studio-border bg-studio-panel shadow-xs"
-              >
-                <ErrorBoundary fallbackTitle="Clip Properties Error">
-                  <InspectorPanel
-                    view="clip"
-                    dockAction={<InspectorDockButton />}
-                  />
-                </ErrorBoundary>
-              </aside>
-            </>
-          )}
-        </div>
+            )}
+            <aside
+              aria-label="Clip Properties"
+              style={{ gridArea: "props" }}
+              className="min-w-0 overflow-hidden rounded-md border border-studio-border bg-studio-panel shadow-xs"
+            >
+              <ErrorBoundary fallbackTitle="Clip Properties Error">
+                <InspectorPanel
+                  view="clip"
+                  dockAction={
+                    isLeftSidebarCollapsed ? undefined : <InspectorDockButton />
+                  }
+                />
+              </ErrorBoundary>
+            </aside>
+          </>
+        )}
 
-        {/* Timeline Height Resizable Divider (Horizontal Gap) */}
         <ResizableDivider
+          style={{ gridArea: "split" }}
           orientation="horizontal"
           onResize={handleHeightResize}
-          onResizeEnd={handleHeightResizeEnd}
         />
 
-        {/* Bottom Timeline Card */}
         <div
-          style={{
-            height: `${timelineHeight}px`,
-          }}
-          className="shrink-0 w-full overflow-hidden rounded-md border border-studio-border bg-studio-panel shadow-xs"
+          data-workspace-timeline
+          style={{ gridArea: "timeline" }}
+          className="min-w-0 overflow-hidden rounded-md border border-studio-border bg-studio-panel shadow-xs"
         >
           <ErrorBoundary
             fallbackTitle="Timeline Error"

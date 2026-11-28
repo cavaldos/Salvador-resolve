@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router';
 import { useProjectStore } from '@/modules/projects';
 import { usePlaybackStore } from '@/modules/editor/store/usePlaybackStore';
 import { useEditorUIStore } from '@/modules/editor/store/useEditorUIStore';
@@ -17,7 +18,11 @@ export function RecordPanel() {
   const { playhead } = usePlaybackStore();
   const { setSelectedClipIds } = useEditorUIStore();
 
-  const [activeTab, setActiveTab] = useState<'mic' | 'screen' | 'camera'>('mic');
+  const [params] = useSearchParams();
+  const recordMode = params.get('record');
+  const [activeTab, setActiveTab] = useState<'mic' | 'screen' | 'camera'>(
+    recordMode === 'screen' || recordMode === 'camera' ? recordMode : 'mic',
+  );
   const [isRecording, setIsRecording] = useState(false);
   const [recordDuration, setRecordDuration] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);

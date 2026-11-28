@@ -1,332 +1,98 @@
-import React, { useState } from "react";
-import {
-  ChevronDown,
-  ChevronRight,
-  Unlink,
-  RotateCcw,
-} from "lucide-react";
+import type { ReactNode } from "react";
+import { RotateCcw, Unlink, Volume2, VolumeX } from "lucide-react";
 import type { AudioSettings, TimelineClip } from "@/modules/editor/types";
 import { detachAudioFromVideo } from "@/modules/editor/features/audio/utils/detachAudio";
 import { useProjectStore } from "@/modules/projects";
 import { Slider } from "@/shared/components/ui/Slider";
-import { cn } from "@/shared/utils/cn";
+import { InspectorSegments, InspectorTabLayout, inspectorSliderStyle, inspectorValueClass } from "./InspectorTabLayout";
 
-import { useInspectorExpanded } from "../hooks/useInspectorAccordion";
-
-export interface AudioTabProps {
-  clip: TimelineClip;
-}
-
-const defaultAudio: AudioSettings = {
-  volume: 1,
-  muted: false,
-  fadeIn: 0,
-  fadeOut: 0,
-};
-
+const defaultAudio: AudioSettings = { volume: 1, muted: false, fadeIn: 0, fadeOut: 0 };
 const VOLUME_PRESETS = [
-  { label: "Mute", sub: "0% silence", val: 0, mute: true },
-  { label: "BGM Soft", sub: "30% background", val: 0.3, mute: false },
-  { label: "Dialogue", sub: "70% speech", val: 0.7, mute: false },
-  { label: "Full 100%", sub: "Standard max", val: 1, mute: false },
+  { label: "Mute", value: 0, muted: true },
+  { label: "BGM Soft", value: 0.3, muted: false },
+  { label: "Dialogue", value: 0.7, muted: false },
+  { label: "Full 100%", value: 1, muted: false },
 ];
+const FADE_PRESETS = [0, 0.5, 1, 2];
+const buttonClass = "rounded-md border border-studio-border bg-studio-panel-raised p-1.5 text-studio-muted enabled:cursor-pointer enabled:hover:text-studio-fg disabled:opacity-50";
 
-export function AudioTab({ clip }: AudioTabProps) {
-  const updateClip = useProjectStore((state) => state.updateClip);
-  const audio = clip.audio || defaultAudio;
-
-  const [volumeExpanded, toggleVolumeExpanded] = useInspectorExpanded("audio.volume", false);
-  const [fadeInExpanded, toggleFadeInExpanded] = useInspectorExpanded("audio.fadeIn", false);
-  const [fadeOutExpanded, toggleFadeOutExpanded] = useInspectorExpanded("audio.fadeOut", false);
-
-  const updateAudio = (updates: Partial<AudioSettings>) => {
-    updateClip(clip.id, {
-      audio: {
-        ...audio,
-        ...updates,
-      },
-    });
+function AudioSlider({ label, value, max, step, unit, onChange, onReset, action }: {
+  label: string;
+  value: number;
+  max: number;
+  step: number;
+  unit: string;
+  onChange: (value: number) => void;
+  onReset: () => void;
+  action?: ReactNode;
+}) {
+  const change = (next: number) => {
+    if (Number.isFinite(next)) onChange(Math.min(max, Math.max(0, next)));
   };
-
-  const resetAudio = () => {
-    updateClip(clip.id, {
-      audio: { ...defaultAudio },
-    });
-  };
-
-  const effectiveVolume = audio.muted ? 0 : audio.volume;
-  const maxFadeIn = Math.max(0, clip.timelineDuration - audio.fadeOut);
-  const maxFadeOut = Math.max(0, clip.timelineDuration - audio.fadeIn);
-
-  const activeVolumePreset = VOLUME_PRESETS.find((p) => {
-    if (p.mute) return audio.muted;
-    return !audio.muted && Math.abs(audio.volume - p.val) < 0.005;
-  });
-
-  const volumeDisplay = activeVolumePreset
-    ? activeVolumePreset.label
-    : `${Math.round(effectiveVolume * 100)}%`;
-
+  const display = value.toFixed(unit === "%" ? 0 : 1);
   return (
-    <div className="flex flex-col text-xs text-studio-fg pb-3 select-none">
-      {/* Row 1: Volume */}
-      <div className="py-2.5 border-b border-studio-border">
-        <div
-          onClick={toggleVolumeExpanded}
-          className="flex items-center justify-between cursor-pointer group select-none"
-        >
-          <span className="text-studio-muted group-hover:text-studio-fg font-medium transition-colors">
-            Volume
-          </span>
-          <div className="flex items-center gap-1.5 font-medium text-studio-fg transition-colors text-xs">
-            {(audio.volume !== 1 || audio.muted) && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  updateAudio({ volume: 1, muted: false });
-                }}
-                className="text-[10px] text-studio-muted hover:text-studio-fg cursor-pointer mr-0.5"
-              >
-                Reset
-              </button>
-            )}
-            <span
-              className={cn(
-                activeVolumePreset ? "" : "font-mono",
-                audio.muted && "text-red-400 font-semibold"
-              )}
-            >
-              {volumeDisplay}
-            </span>
-            {volumeExpanded ? (
-              <ChevronDown className="h-3.5 w-3.5 text-studio-muted group-hover:text-studio-fg" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5 text-studio-muted group-hover:text-studio-fg" />
-            )}
-          </div>
-        </div>
-
-        {/* Volume Controls when expanded */}
-        {volumeExpanded && (
-          <div className="mt-2.5 space-y-2 pt-0.5">
-            <Slider
-              aria-label="Clip volume slider"
-              value={effectiveVolume}
-              min={0}
-              max={1}
-              step={0.01}
-              fillClassName="bg-studio-fg group-hover:bg-studio-fg"
-              trackClassName="bg-studio-hover"
-              onValueChange={(val) => {
-                updateAudio({ volume: val, muted: false });
-              }}
-            />
-            <div className="grid grid-cols-4 gap-1 pt-1">
-              {VOLUME_PRESETS.map((p) => {
-                const isActive = p.mute
-                  ? audio.muted
-                  : !audio.muted && Math.abs(audio.volume - p.val) < 0.005;
-
-                return (
-                  <button
-                    key={p.label}
-                    type="button"
-                    onClick={() => {
-                      if (p.mute) {
-                        updateAudio({ muted: true });
-                      } else {
-                        updateAudio({ volume: p.val, muted: false });
-                      }
-                    }}
-                    className={cn(
-                      "py-1 rounded-md text-center text-[10px] font-medium transition-all cursor-pointer",
-                      isActive
-                        ? "bg-studio-hover text-studio-fg font-semibold border border-studio-border shadow-xs"
-                        : "bg-studio-panel-raised/50 text-studio-muted hover:bg-studio-hover hover:text-studio-fg border border-studio-border"
-                    )}
-                  >
-                    {p.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
+    <div>
+      <div className="mb-1.5 flex items-center justify-between">
+        <p className="font-medium">{label}</p>
+        <button type="button" aria-label={`Reset ${label.toLowerCase()}`} onClick={onReset} className="cursor-pointer rounded p-1 text-studio-muted hover:text-studio-fg"><RotateCcw className="size-3" aria-hidden="true" /></button>
       </div>
-
-      {/* Row 2: Fade In */}
-      <div className="py-2.5 border-b border-studio-border">
-        <div
-          onClick={toggleFadeInExpanded}
-          className="flex items-center justify-between cursor-pointer group select-none"
-        >
-          <span className="text-studio-muted group-hover:text-studio-fg font-medium transition-colors">
-            Fade In (Start)
-          </span>
-          <div className="flex items-center gap-1.5 font-medium text-studio-fg transition-colors text-xs">
-            {audio.fadeIn > 0 && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  updateAudio({ fadeIn: 0 });
-                }}
-                className="text-[10px] text-studio-muted hover:text-studio-fg cursor-pointer mr-0.5"
-              >
-                Reset
-              </button>
-            )}
-            <span className="font-mono text-xs">
-              {audio.fadeIn.toFixed(1)}s
-            </span>
-            {fadeInExpanded ? (
-              <ChevronDown className="h-3.5 w-3.5 text-studio-muted group-hover:text-studio-fg" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5 text-studio-muted group-hover:text-studio-fg" />
-            )}
-          </div>
-        </div>
-
-        {fadeInExpanded && (
-          <div className="mt-2.5 space-y-2 pt-0.5">
-            <Slider
-              aria-label="Audio fade in"
-              value={audio.fadeIn}
-              min={0}
-              max={Math.max(0.1, maxFadeIn)}
-              step={0.1}
-              fillClassName="bg-studio-fg group-hover:bg-studio-fg"
-              trackClassName="bg-studio-hover"
-              onValueChange={(val) => updateAudio({ fadeIn: val })}
-            />
-            <div className="grid grid-cols-4 gap-1 pt-1">
-              {[
-                { label: "None (0s)", val: 0 },
-                { label: "0.5s", val: 0.5 },
-                { label: "1.0s", val: 1.0 },
-                { label: "2.0s", val: 2.0 },
-              ].map((f) => (
-                <button
-                  key={f.label}
-                  type="button"
-                  disabled={f.val > maxFadeIn}
-                  onClick={() => updateAudio({ fadeIn: f.val })}
-                  className={cn(
-                    "py-1 rounded-md text-center text-[10px] font-medium transition-all cursor-pointer border disabled:opacity-40 disabled:cursor-not-allowed",
-                    Math.abs(audio.fadeIn - f.val) < 0.05
-                      ? "bg-studio-hover text-studio-fg font-semibold border-studio-border shadow-xs"
-                      : "bg-studio-panel-raised/50 text-studio-muted hover:bg-studio-hover hover:text-studio-fg border-studio-border"
-                  )}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Row 3: Fade Out */}
-      <div className="py-2.5 border-b border-studio-border">
-        <div
-          onClick={toggleFadeOutExpanded}
-          className="flex items-center justify-between cursor-pointer group select-none"
-        >
-          <span className="text-studio-muted group-hover:text-studio-fg font-medium transition-colors">
-            Fade Out (End)
-          </span>
-          <div className="flex items-center gap-1.5 font-medium text-studio-fg transition-colors text-xs">
-            {audio.fadeOut > 0 && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  updateAudio({ fadeOut: 0 });
-                }}
-                className="text-[10px] text-studio-muted hover:text-studio-fg cursor-pointer mr-0.5"
-              >
-                Reset
-              </button>
-            )}
-            <span className="font-mono text-xs">
-              {audio.fadeOut.toFixed(1)}s
-            </span>
-            {fadeOutExpanded ? (
-              <ChevronDown className="h-3.5 w-3.5 text-studio-muted group-hover:text-studio-fg" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5 text-studio-muted group-hover:text-studio-fg" />
-            )}
-          </div>
-        </div>
-
-        {fadeOutExpanded && (
-          <div className="mt-2.5 space-y-2 pt-0.5">
-            <Slider
-              aria-label="Audio fade out"
-              value={audio.fadeOut}
-              min={0}
-              max={Math.max(0.1, maxFadeOut)}
-              step={0.1}
-              fillClassName="bg-studio-fg group-hover:bg-studio-fg"
-              trackClassName="bg-studio-hover"
-              onValueChange={(val) => updateAudio({ fadeOut: val })}
-            />
-            <div className="grid grid-cols-4 gap-1 pt-1">
-              {[
-                { label: "None (0s)", val: 0 },
-                { label: "0.5s", val: 0.5 },
-                { label: "1.0s", val: 1.0 },
-                { label: "2.0s", val: 2.0 },
-              ].map((f) => (
-                <button
-                  key={f.label}
-                  type="button"
-                  disabled={f.val > maxFadeOut}
-                  onClick={() => updateAudio({ fadeOut: f.val })}
-                  className={cn(
-                    "py-1 rounded-md text-center text-[10px] font-medium transition-all cursor-pointer border disabled:opacity-40 disabled:cursor-not-allowed",
-                    Math.abs(audio.fadeOut - f.val) < 0.05
-                      ? "bg-studio-hover text-studio-fg font-semibold border-studio-border shadow-xs"
-                      : "bg-studio-panel-raised/50 text-studio-muted hover:bg-studio-hover hover:text-studio-fg border-studio-border"
-                  )}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Row 4: Separate Audio Track */}
-      {(clip.type === "video" || clip.type === "overlay") && (
-        <div className="py-2.5 border-b border-studio-border group select-none">
-          <div className="flex items-center justify-between">
-            <span className="text-studio-muted group-hover:text-studio-fg font-medium transition-colors">
-              Audio track
-            </span>
-            <button
-              type="button"
-              onClick={() => detachAudioFromVideo(clip.id)}
-              className="h-6 px-2.5 rounded-md border border-studio-border bg-studio-panel-raised/50 hover:bg-studio-hover text-studio-muted hover:text-studio-fg flex items-center gap-1.5 text-[11px] font-medium transition-colors cursor-pointer"
-            >
-              <Unlink className="h-3 w-3 text-studio-muted" /> Detach to Timeline Track
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Row 5: Reset Audio */}
-      <div className="pt-3">
-        <button
-          type="button"
-          onClick={resetAudio}
-          className="h-7 w-full flex items-center justify-center gap-1.5 rounded-lg border border-studio-border bg-studio-panel-raised/40 text-xs text-studio-muted hover:border-studio-border-strong hover:bg-studio-hover hover:text-studio-fg cursor-pointer transition-all"
-        >
-          <RotateCcw className="h-3 w-3 text-studio-muted" /> Reset Audio Controls
-        </button>
+      <div className="flex items-center gap-2">
+        <Slider {...inspectorSliderStyle} aria-label={`${label} slider`} value={value} min={0} max={max || 1} step={step} disabled={max === 0} onValueChange={change} />
+        <label className="relative shrink-0">
+          <input key={value} type="number" aria-label={label} min={0} max={max} step={step} defaultValue={display} disabled={max === 0} onBlur={(event) => {
+            change(event.currentTarget.valueAsNumber);
+            event.currentTarget.value = display;
+          }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} className={`${inspectorValueClass} pr-6`} />
+          <span aria-hidden="true" className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-studio-muted">{unit}</span>
+        </label>
+        {action}
       </div>
     </div>
+  );
+}
+
+export function AudioTab({ clip }: { clip: TimelineClip }) {
+  const updateClip = useProjectStore((state) => state.updateClip);
+  const audio = clip.audio ?? defaultAudio;
+  const updateAudio = (updates: Partial<AudioSettings>) => updateClip(clip.id, { audio: { ...audio, ...updates } });
+  const maxFadeIn = Math.max(0, clip.timelineDuration - audio.fadeOut);
+  const maxFadeOut = Math.max(0, clip.timelineDuration - audio.fadeIn);
+  const VolumeIcon = audio.muted ? VolumeX : Volume2;
+
+  return (
+    <InspectorTabLayout header={<InspectorSegments label="Audio tools" items={["Basic", "Voice changer"]} />} onReset={() => updateAudio(defaultAudio)}>
+      <div className="space-y-3 border-b border-studio-border pb-3 text-xs">
+        <h3 className="font-semibold">Basic</h3>
+        <AudioSlider label="Volume" value={audio.muted ? 0 : audio.volume * 100} max={100} step={1} unit="%" onChange={(volume) => updateAudio({ volume: volume / 100, muted: false })} onReset={() => updateAudio({ volume: 1, muted: false })} action={(
+          <button type="button" aria-label={audio.muted ? "Unmute" : "Mute"} onClick={() => updateAudio({ muted: !audio.muted })} className={buttonClass}><VolumeIcon className="size-4" aria-hidden="true" /></button>
+        )} />
+        <AudioSlider label="Fade in" value={audio.fadeIn} max={maxFadeIn} step={0.1} unit="s" onChange={(fadeIn) => updateAudio({ fadeIn })} onReset={() => updateAudio({ fadeIn: 0 })} />
+        <AudioSlider label="Fade out" value={audio.fadeOut} max={maxFadeOut} step={0.1} unit="s" onChange={(fadeOut) => updateAudio({ fadeOut })} onReset={() => updateAudio({ fadeOut: 0 })} />
+        <div title="Audio pan is not available" className="text-studio-muted opacity-65">
+          <p className="mb-1.5">Pan</p>
+          <div className="flex items-center gap-2">
+            <Slider {...inspectorSliderStyle} aria-label="Pan" disabled value={0} min={-100} max={100} onValueChange={() => {}} />
+            <span className={inspectorValueClass}>0%</span>
+          </div>
+        </div>
+      </div>
+      {clip.type === "video" && clip.assetId && (
+        <button type="button" disabled={clip.audio?.muted} onClick={() => void detachAudioFromVideo(clip.id)} className={`${buttonClass} mt-3 flex items-center gap-1.5 text-xs disabled:opacity-50`}>
+          <Unlink className="size-3" aria-hidden="true" /> Detach audio to timeline
+        </button>
+      )}
+      <details className="mt-3 text-xs text-studio-muted">
+        <summary className="cursor-pointer">Audio presets</summary>
+        <div className="mt-2 flex flex-wrap gap-1">
+          {VOLUME_PRESETS.map(({ label, value, muted }) => <button key={label} type="button" className={buttonClass} onClick={() => updateAudio(muted ? { muted } : { volume: value, muted })}>{label}</button>)}
+        </div>
+        {(["fadeIn", "fadeOut"] as const).map((field) => (
+          <div key={field} className="mt-2 flex flex-wrap items-center gap-1">
+            <span className="mr-1">{field === "fadeIn" ? "Fade in" : "Fade out"}</span>
+            {FADE_PRESETS.map((value) => <button key={value} type="button" className={buttonClass} disabled={value > (field === "fadeIn" ? maxFadeIn : maxFadeOut)} onClick={() => updateAudio({ [field]: value })}>{value} s</button>)}
+          </div>
+        ))}
+      </details>
+    </InspectorTabLayout>
   );
 }

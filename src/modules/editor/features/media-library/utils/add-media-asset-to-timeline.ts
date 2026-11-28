@@ -4,22 +4,21 @@ import type { MediaAsset } from '@/modules/projects/types';
 import type { TimelineClip, Track } from '@/modules/editor/types';
 import { useEditorUIStore } from '@/modules/editor/store/useEditorUIStore';
 
-export function addMediaAssetToTimeline(asset: MediaAsset): TimelineClip | null {
+import { acceptsTimelineInsert, type TimelineInsertPosition } from '@/modules/editor/features/timeline/utils/timeline-insert-drag';
+
+export function addMediaAssetToTimeline(asset: MediaAsset, position?: TimelineInsertPosition): TimelineClip | null {
   const project = useProjectStore.getState().currentProject;
   if (!project) return null;
 
-  const trackType: Track['type'] = asset.type === 'audio' ? 'audio' : 'video';
-  let targetTrack = project.tracks.find((t) => t.type === trackType);
-
-  if (!targetTrack) {
-    const trackName = `${trackType.charAt(0).toUpperCase() + trackType.slice(1)} Track`;
-    useProjectStore.getState().addTrack(trackType, trackName);
-    targetTrack = useProjectStore.getState().currentProject?.tracks.find((t) => t.type === trackType);
-  }
-  if (!targetTrack) return null;
-
-  const lastClip = targetTrack.clips[targetTrack.clips.length - 1];
-  const start = lastClip ? lastClip.timelineStart + lastClip.timelineDuration : 0;
+  const trackType: Track['type'] = asset.type === 'audio' ? 'audio'
+    : position && asset.type === 'image' ? 'overlay' : 'video';
+  const targetTrack = position
+    ? project.tracks.find((track) => track.id === position.trackId)
+    : project.tracks.find((track) => track.type === trackType && !track.locked);
+  if (position?.trackId && (!targetTrack || !acceptsTimelineInsert(targetTrack, asset.type))) return null;
+  const trackId = targetTrack?.id ?? nanoid();
+  const lastClip = targetTrack?.clips.at(-1);
+  const start = position?.time ?? (lastClip ? lastClip.timelineStart + lastClip.timelineDuration : 0);
   const duration = Math.max(0.1, asset.type === 'image' ? 5 : asset.duration || 5);
   const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches;
 
@@ -30,7 +29,7 @@ export function addMediaAssetToTimeline(asset: MediaAsset): TimelineClip | null 
 
   const clip: TimelineClip = {
     id: nanoid(),
-    trackId: targetTrack.id,
+    trackId,
     assetId: asset.id,
     type: asset.type,
     timelineStart: Math.max(0, start),
@@ -54,7 +53,8 @@ export function addMediaAssetToTimeline(asset: MediaAsset): TimelineClip | null 
     speed: 1,
   };
 
-  useProjectStore.getState().addClip(targetTrack.id, clip);
-  if (isMobile) useEditorUIStore.getState().setSelectedClipIds([clip.id]);
-  return clip;
+  useProjectStore.getState().addClip(trackId, clip, targetTrack ? undefined : trackType);
+  if (isMobile || position) useEditorUIStore.getState().setSelectedClipIds([clip.id]);
+  return useProjectStore.getState().currentProject?.tracks.find((track) => track.id === trackId)
+    ?.clips.find((item) => item.id === clip.id) ?? null;
 }

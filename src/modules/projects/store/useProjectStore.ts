@@ -10,6 +10,7 @@ import {
   splitClipAtTime,
   resetClipToOriginal,
   deleteClipsFromTracks,
+  getTimelineGapBefore,
   duplicateClipsInTracks,
   nudgeClipsInTracks,
   reorderTrackLanes,
@@ -64,7 +65,7 @@ interface ProjectState {
   reorderTracks: (startIndex: number, endIndex: number) => void;
   toggleTrackMute: (trackId: string) => void;
 
-  addClip: (trackId: string, clip: TimelineClip) => void;
+  addClip: (trackId: string, clip: TimelineClip, newTrackType?: Track["type"]) => void;
   updateClip: (
     clipId: string,
     updates: Partial<TimelineClip>,
@@ -86,7 +87,9 @@ interface ProjectState {
   ) => void;
   resetClipTiming: (clipId: string) => void;
   splitClip: (clipId: string, splitTime: number) => void;
-  deleteClips: (clipIds: string[]) => void;
+  deleteClips: (clipIds: string[], options?: { ripple?: boolean }) => void;
+  closeGapBeforeClip: (clipId: string) => void;
+  detachClipAudio: (clipId: string, assetId: string) => string | null;
   duplicateClips: (clipIds: string[]) => void;
   nudgeClips: (clipIds: string[], deltaSeconds: number) => void;
 
@@ -422,13 +425,27 @@ export const useProjectStore = create<ProjectState>()(
       if (updated) autosaveService.scheduleSave(updated);
     },
 
-    addClip: (trackId, clip) => {
+    addClip: (trackId, clip, newTrackType) => {
       const current = get().currentProject;
       if (!current) return;
+      const track = current.tracks.find((item) => item.id === trackId);
+      if (track?.locked || (!track && !newTrackType)) return;
 
       historyManager.pushState(current);
       set((state) => {
         if (state.currentProject) {
+          if (!track && newTrackType) {
+            state.currentProject.tracks.push({
+              id: trackId,
+              type: newTrackType,
+              name: `${newTrackType[0].toUpperCase()}${newTrackType.slice(1)} Track`,
+              order: state.currentProject.tracks.length,
+              hidden: false,
+              locked: false,
+              muted: false,
+              clips: [],
+            });
+          }
           state.currentProject.tracks = addClipToTrack(
             state.currentProject.tracks,
             trackId,
@@ -618,9 +635,9 @@ export const useProjectStore = create<ProjectState>()(
       if (updated) autosaveService.scheduleSave(updated);
     },
 
-    deleteClips: (clipIds) => {
+    deleteClips: (clipIds, options) => {
       const current = get().currentProject;
-      if (!current) return;
+      if (!current?.tracks.some((track) => !track.locked && track.clips.some((clip) => clipIds.includes(clip.id)))) return;
 
       historyManager.pushState(current);
       set((state) => {
@@ -628,6 +645,7 @@ export const useProjectStore = create<ProjectState>()(
           state.currentProject.tracks = deleteClipsFromTracks(
             state.currentProject.tracks,
             clipIds,
+            options?.ripple,
           );
           removeEmptyTracks(state.currentProject);
           syncProjectDuration(state.currentProject);
@@ -636,6 +654,54 @@ export const useProjectStore = create<ProjectState>()(
 
       const updated = get().currentProject;
       if (updated) autosaveService.scheduleSave(updated);
+    },
+
+    closeGapBeforeClip: (clipId) => {
+      const current = get().currentProject;
+      const track = current?.tracks.find((item) => item.clips.some((clip) => clip.id === clipId));
+      const clip = track?.clips.find((item) => item.id === clipId);
+      if (!current || !track || !clip) return;
+      const gap = getTimelineGapBefore(track, clip);
+      if (!gap) return;
+
+      historyManager.pushState(current);
+      set((state) => {
+        const project = state.currentProject;
+        const lane = project?.tracks.find(({ id }) => id === track.id);
+        if (!project || !lane) return;
+        for (const item of lane.clips) {
+          if (item.timelineStart >= clip.timelineStart) item.timelineStart -= gap;
+        }
+        syncProjectDuration(project);
+      });
+      const updated = get().currentProject;
+      if (updated) autosaveService.scheduleSave(updated);
+    },
+
+    detachClipAudio: (clipId, assetId) => {
+      const current = get().currentProject;
+      const track = current?.tracks.find((item) => item.clips.some((clip) => clip.id === clipId));
+      const clip = track?.clips.find((item) => item.id === clipId);
+      if (!current || !track || track.locked || !clip || clip.type !== "video" || clip.assetId !== assetId || clip.audio?.muted) return null;
+      const trackId = nanoid();
+      const audio: TimelineClip = {
+        ...clip, id: nanoid(), trackId, type: "audio", name: `${clip.name} — Audio`, splitGroupId: undefined,
+      };
+      historyManager.pushState(current);
+      set((state) => {
+        const project = state.currentProject;
+        const lane = project?.tracks.find(({ id }) => id === track.id);
+        const video = lane?.clips.find(({ id }) => id === clipId);
+        if (!project || !video) return;
+        video.audio = { ...video.audio, muted: true };
+        project.tracks.push({
+          id: trackId, name: "Detached Audio", type: "audio", order: project.tracks.length,
+          hidden: track.hidden, muted: track.muted, locked: false, clips: [audio],
+        });
+      });
+      const updated = get().currentProject;
+      if (updated) autosaveService.scheduleSave(updated);
+      return audio.id;
     },
 
     duplicateClips: (clipIds) => {

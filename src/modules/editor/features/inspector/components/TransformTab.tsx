@@ -5,9 +5,9 @@ import { useEditorUIStore } from "@/modules/editor/store/useEditorUIStore";
 import { Button } from "@/shared/components/ui/Button";
 import { Input } from "@/shared/components/ui/Input";
 import { Slider } from "@/shared/components/ui/Slider";
+import { InspectorSegments, InspectorTabLayout, inspectorSliderStyle, inspectorValueClass } from "./InspectorTabLayout";
 import {
   Maximize2,
-  RotateCcw,
   Crop,
   FlipHorizontal,
   FlipVertical,
@@ -73,9 +73,9 @@ export function TransformTab({ clip }: TransformTabProps) {
 
   const [framingExpanded, toggleFramingExpanded] = useInspectorExpanded("transform.framing", false);
   const [dimensionsExpanded, toggleDimensionsExpanded] = useInspectorExpanded("transform.dimensions", false);
-  const [positionExpanded, togglePositionExpanded] = useInspectorExpanded("transform.position", false);
+  const [positionExpanded, togglePositionExpanded] = useInspectorExpanded("transform.position", true);
   const [flipExpanded, toggleFlipExpanded] = useInspectorExpanded("transform.flip", false);
-  const [rotationExpanded, toggleRotationExpanded] = useInspectorExpanded("transform.rotation", false);
+  const [rotationExpanded, toggleRotationExpanded] = useInspectorExpanded("transform.rotation", true);
 
   const isCropping = activeTool === "crop";
   const crop: CropSettings = clip.transform.crop || {
@@ -340,30 +340,30 @@ export function TransformTab({ clip }: TransformTabProps) {
         crop: { top: 0, right: 0, bottom: 0, left: 0 },
         fitMode: "contain",
       },
-      adjustments: {
-        brightness: 1,
-        contrast: 1,
-        saturation: 1,
-        blur: 0,
-        grayscale: 0,
-        sepia: 0,
-      },
-      audio: {
-        volume: 1,
-        muted: false,
-        fadeIn: 0,
-        fadeOut: 0,
-      },
-      speed: 1,
     });
     setCustomSizeOpen(false);
     if (isCropping) setActiveTool("canvas");
   };
 
   const isFramingOpen = framingExpanded || isCropping;
+  const scale = Math.round(clip.transform.width / projW * 100);
+  const minScale = Math.max(1, Math.ceil(1000 / projW));
+  const maxScale = Math.max(minScale + 1, Math.floor(768000 / projW));
 
   return (
-    <div className="flex flex-col text-xs text-studio-fg pb-3 select-none">
+    <InspectorTabLayout header={<InspectorSegments label="Video tools" items={["Basic", "Remove BG", "Mask", "Retouch"]} />} onReset={handleReset}>
+      <div className="space-y-2 border-b border-studio-border pb-3">
+          <h3 className="font-semibold">Transform</h3>
+          <p className="text-studio-muted">Scale</p>
+          <div className="flex items-center gap-3">
+            <Slider {...inspectorSliderStyle} aria-label="Scale relative to canvas width" value={scale} min={minScale} max={maxScale} onValueChange={(value) => commitDimension("width", String(projW * value / 100))} />
+            <output className={inspectorValueClass}>{scale}%</output>
+          </div>
+          <label className="flex items-center justify-between pt-1 text-studio-fg">
+            Uniform scale
+            <input type="checkbox" role="switch" checked={isAspectLocked} onChange={(event) => setIsAspectLocked(event.currentTarget.checked)} className="h-5 w-9 cursor-pointer appearance-none rounded-full bg-studio-hover before:m-0.5 before:block before:size-4 before:rounded-full before:bg-white checked:bg-cyan-600 checked:before:translate-x-4 focus-visible:outline-cyan-500 dark:checked:bg-cyan-500" />
+          </label>
+      </div>
       {/* Row 1: Fit & Framing */}
       <div className="py-2.5 border-b border-studio-border">
         <div
@@ -875,6 +875,8 @@ export function TransformTab({ clip }: TransformTabProps) {
         {rotationExpanded && (
           <div className="mt-2.5 space-y-1.5">
             <Slider
+              {...inspectorSliderStyle}
+              aria-label="Rotation"
               value={clip.transform.rotation ?? 0}
               min={0}
               max={360}
@@ -909,8 +911,8 @@ export function TransformTab({ clip }: TransformTabProps) {
         )}
       </div>
 
-      {/* Row 6: Opacity */}
-      <div className="py-2.5 border-b border-studio-border space-y-2 group select-none">
+      <div className="py-2.5 space-y-2 group select-none">
+        <h3 className="font-semibold">Blend</h3>
         <div className="flex items-center justify-between">
           <span className="text-studio-muted group-hover:text-studio-fg font-medium transition-colors">
             Opacity
@@ -924,24 +926,13 @@ export function TransformTab({ clip }: TransformTabProps) {
           min={0}
           max={1}
           step={0.01}
-          fillClassName="bg-studio-fg group-hover:bg-studio-fg"
-          trackClassName="bg-studio-hover"
+          {...inspectorSliderStyle}
+          aria-label="Opacity"
           onValueChange={(val) => {
             commitTransform({ opacity: val });
           }}
         />
       </div>
-
-      {/* Row 6: Reset Action */}
-      <div className="pt-3">
-        <button
-          type="button"
-          onClick={handleReset}
-          className="h-7 w-full flex items-center justify-center gap-1.5 rounded-lg border border-studio-border bg-studio-panel-raised/40 text-xs text-studio-muted hover:border-studio-border-strong hover:bg-studio-hover hover:text-studio-fg cursor-pointer transition-all"
-        >
-          <RotateCcw className="h-3 w-3 text-studio-muted" /> Reset Transform
-        </button>
-      </div>
-    </div>
+    </InspectorTabLayout>
   );
 }

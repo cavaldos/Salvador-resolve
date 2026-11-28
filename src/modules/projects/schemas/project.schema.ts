@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const AspectRatioSchema = z.enum(['16:9', '9:16', '1:1', '4:5']);
+export const AspectRatioSchema = z.enum(['16:9', '9:16', '1:1', '4:5', '21:9']);
 
 export const ProjectSettingsSchema = z.object({
   width: z.number().positive(),

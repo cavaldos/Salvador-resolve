@@ -15,6 +15,7 @@ import { useEditorUIStore } from "@/modules/editor/store/useEditorUIStore";
 import { processAndStoreMediaFile } from "@/modules/editor/features/media-library/services/media-import-service";
 import { useToastStore } from "@/shared/components/ui/Toast/useToastStore";
 import type { TimelineClip } from "@/modules/editor/types";
+import { acceptsTimelineInsert, timelineInsertDragProps, type TimelineInsertPosition } from "@/modules/editor/features/timeline/utils/timeline-insert-drag";
 import { ElementLibraryBrowser } from "./ElementLibraryBrowser";
 import { ElementMediaCard } from "./ElementMediaCard";
 import {
@@ -195,19 +196,22 @@ export function ElementsPanel() {
   }, [addTrack]);
 
   const handleAddElement = useCallback(
-    (preset: ElementPreset) => {
+    (preset: ElementPreset, position?: TimelineInsertPosition) => {
       const project = useProjectStore.getState().currentProject;
       if (!project) return;
-      const track = ensureOverlayTrack();
-      if (!track) return;
+      const track = project.tracks.find((item) =>
+        position ? item.id === position.trackId : acceptsTimelineInsert(item, "overlay"),
+      );
+      if (position?.trackId && (!track || !acceptsTimelineInsert(track, "overlay"))) return;
+      const trackId = track?.id ?? nanoid();
 
       const { width, height, ...elementStyle } = preset.style;
       const newClipId = nanoid();
       const newClip: TimelineClip = {
         id: newClipId,
-        trackId: track.id,
+        trackId,
         type: "overlay",
-        timelineStart: usePlaybackStore.getState().playhead,
+        timelineStart: position?.time ?? usePlaybackStore.getState().playhead,
         timelineDuration: 5,
         sourceStart: 0,
         sourceDuration: 5,
@@ -236,10 +240,10 @@ export function ElementsPanel() {
         speed: 1,
       };
 
-      addClip(track.id, newClip);
+      addClip(trackId, newClip, track ? undefined : "overlay");
       setSelectedClipIds([newClipId]);
     },
-    [addClip, ensureOverlayTrack, setSelectedClipIds],
+    [addClip, setSelectedClipIds],
   );
 
   const addMediaClip = useCallback(
@@ -431,6 +435,7 @@ export function ElementsPanel() {
               key={preset.id}
               type="button"
               onClick={() => handleAddElement(preset)}
+              {...timelineInsertDragProps("overlay", (position) => handleAddElement(preset, position))}
               title={`Add ${preset.name}`}
               className="flex flex-col overflow-hidden rounded-lg border border-studio-border bg-studio-panel-raised transition-colors hover:border-studio-border-strong hover:bg-studio-hover focus-visible:outline-2 focus-visible:outline-brand"
             >

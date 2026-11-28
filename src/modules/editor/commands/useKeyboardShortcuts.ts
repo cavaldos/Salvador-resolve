@@ -9,6 +9,7 @@ export function useKeyboardShortcuts(onOpenHelpModal?: () => void) {
       // 1. Skip shortcuts when user is typing in interactive form elements
       const target = e.target as HTMLElement | null;
       if (target) {
+        if (target.closest('[role="menu"]')) return;
         const tagName = target.tagName.toLowerCase();
         // Only block if the element is an actual text-entry field
         const isTextEntry =

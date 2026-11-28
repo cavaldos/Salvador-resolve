@@ -28,12 +28,13 @@ export function TrackLane({
 }: TrackLaneProps) {
   return (
     <div
+      data-timeline-track={track.id}
       style={{
         height: trackHeight,
         minWidth: totalWidthPx > 0 ? totalWidthPx : undefined,
       }}
       className={cn(
-        "relative w-full bg-transparent select-none transition-[background-color,opacity,box-shadow]",
+        "relative w-full border-b border-studio-fg/5 bg-studio-panel-raised/25 select-none transition-[background-color,opacity,box-shadow]",
         dropState === "valid" && "bg-studio-hover/60 ring-1 ring-inset ring-studio-border-strong",
         dropState === "invalid" &&
           "bg-destructive/10 ring-1 ring-inset ring-destructive/50",

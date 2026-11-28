@@ -27,6 +27,16 @@ export function formatTimecode(
   return `${prefix}${mm}:${ss}`;
 }
 
+export function timelineTimeFromPosition(
+  position: number,
+  zoom: number,
+  duration: number,
+  fps: number,
+): number {
+  const time = Math.max(0, Math.min(duration, position / zoom));
+  return Math.min(duration, Math.round(time * fps) / fps);
+}
+
 export function generateRulerTicks(
   duration: number,
   zoom: number,

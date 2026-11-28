@@ -44,6 +44,7 @@ import { useProjectStore, autosaveService } from "@/modules/projects";
 import { ThemeToggle } from "@/shared/components/ThemeToggle";
 import { ErrorBoundary } from "@/shared/components/ErrorBoundary";
 import { cn } from "@/shared/utils/cn";
+import { macWindowHeaderProps } from "@/shared/utils/mac-window-header";
 import { DropdownMenu, DropdownMenuItem } from "@/shared/components/ui/DropdownMenu";
 import { useToastStore } from "@/shared/components/ui/Toast/useToastStore";
 
@@ -308,7 +309,7 @@ export function MobileProjectShell() {
 
   return (
     <div ref={editorRef} className="relative flex h-dvh w-full min-w-0 flex-col overflow-hidden bg-studio-bg text-studio-fg select-none">
-      <header className="flex h-[calc(60px+env(safe-area-inset-top))] shrink-0 items-center gap-2 border-b border-studio-border bg-studio-topbar px-2.5 pt-[env(safe-area-inset-top)]">
+      <header {...macWindowHeaderProps} className="flex h-[calc(60px+env(safe-area-inset-top))] shrink-0 items-center gap-2 border-b border-studio-border bg-studio-topbar px-2.5 pt-[env(safe-area-inset-top)]">
         <Link
           to="/projects"
           aria-label="Back to projects"

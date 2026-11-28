@@ -89,13 +89,12 @@ export async function buildExportPreflight(
 ): Promise<ExportPreflightResult> {
   const duration = Math.max(0.5, project.settings.duration);
   const { width, height } = getExportDimensions(project, settings.resolution);
-  const videoAssets = await loadTimelineVideoAssets(project, duration);
-  const videoBitrate = getExportVideoBitrate(
+  const videoBitrate = settings.videoBitrate ?? getExportVideoBitrate(
     width,
     height,
     settings.fps,
     settings.quality,
-    videoAssets,
+    await loadTimelineVideoAssets(project, duration),
   );
   const hasAudio = hasExportAudio(project);
   const audioBitrate = getExportAudioBitrate(hasAudio, settings.quality);
@@ -120,7 +119,7 @@ export async function buildExportPreflight(
     ? settings.format === "mp4"
       ? "video/mp4"
       : "video/webm"
-    : !isLongExport && settings.format === "mp4" && nativeMp4
+    : settings.format === "mp4" && nativeMp4
       ? nativeMp4
       : getNativeExportMimeType();
   const requiresMp4Conversion =
@@ -151,16 +150,20 @@ export async function buildExportPreflight(
     "captureStream" in HTMLCanvasElement.prototype &&
     MediaRecorder.isTypeSupported(mimeType);
 
-  const blockingReason =
-    isLongExport && isMobile
-      ? "For this export size, use a desktop browser."
-      : !hasEnoughStorage
-        ? "Not enough local storage for this export."
-        : !frameEncoding && !canRecord
-          ? "This browser cannot export this format. Try another format or an updated browser."
-          : settings.format === "webm" && extension !== "webm"
-            ? "WebM is unavailable in this browser. Choose MP4."
-            : null;
+  let blockingReason: string | null = null;
+  if (isLongExport && isMobile) {
+    blockingReason = "For this export size, use a desktop browser.";
+  } else if (!hasEnoughStorage) {
+    blockingReason = "Not enough local storage for this export.";
+  } else if (!frameEncoding && !canRecord) {
+    blockingReason = "This browser cannot export this format. Try another format or an updated browser.";
+  } else if (settings.format === "webm" && extension !== "webm") {
+    blockingReason = "WebM is unavailable in this browser. Choose MP4.";
+  } else if (!frameEncoding && settings.format === "mp4" && !nativeMp4 && isLongExport) {
+    blockingReason = "Long MP4 export requires an MP4 encoder. Choose WebM or reduce the export size.";
+  } else if (requiresMp4Conversion && typeof Worker === "undefined") {
+    blockingReason = "MP4 conversion is unavailable on this device. Choose WebM.";
+  }
 
   return {
     frameEncoding,

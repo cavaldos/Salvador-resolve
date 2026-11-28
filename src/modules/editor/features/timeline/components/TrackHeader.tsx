@@ -46,10 +46,7 @@ export function TrackHeader({
   const deleteTrack = useProjectStore((state) => state.deleteTrack);
   const activeTrackId = useEditorUIStore((state) => state.activeTrackId);
   const setActiveTrackId = useEditorUIStore((state) => state.setActiveTrackId);
-  const trackHeaderWidth = useEditorUIStore((state) =>
-    Math.max(170, state.trackHeaderWidth ?? 180),
-  );
-  const isCompact = trackHeaderWidth < 200;
+  const isCompact = useEditorUIStore((state) => state.trackHeaderWidth < 200);
 
   const {
     attributes,
@@ -145,10 +142,8 @@ export function TrackHeader({
         onClick={() => setActiveTrackId(track.id)}
         onContextMenu={handleContextMenu}
         className={cn(
-          "relative flex w-full shrink-0 items-center border-b border-studio-border bg-transparent px-1.5 text-studio-fg select-none transition-[background-color,border-color,opacity,box-shadow] hover:bg-studio-panel overflow-hidden",
-          !isCompact ? "justify-between" : "justify-between gap-1",
-          isSelected &&
-            "bg-studio-panel-raised shadow-[inset_2.5px_0_0_var(--studio-fg)]",
+          "relative flex w-full shrink-0 items-center justify-between gap-0.5 overflow-hidden border-b border-studio-fg/5 px-1.5 text-studio-fg select-none transition-colors hover:bg-studio-panel-raised",
+          isSelected && "bg-studio-panel-raised shadow-[inset_2px_0_0_var(--color-brand)]",
           reorderState === "active" &&
             "border-y border-dashed border-studio-border bg-studio-panel-raised/50",
           reorderState === "over" && "bg-studio-hover",
@@ -176,14 +171,14 @@ export function TrackHeader({
             {...attributes}
             {...listeners}
             title="Drag to reorder track"
-            className="flex h-6 w-4 shrink-0 touch-none cursor-grab items-center justify-center rounded bg-transparent text-studio-muted outline-none transition-[color,transform] hover:text-studio-fg active:cursor-grabbing active:scale-95"
+            className="flex h-6 w-3.5 shrink-0 touch-none cursor-grab items-center justify-center rounded bg-transparent text-studio-muted outline-none transition-[color,transform] hover:text-studio-fg active:cursor-grabbing active:scale-95"
           >
             <GripVertical className="h-3 w-3" />
           </button>
 
           <span
             className={cn(
-              "flex h-6 w-5 shrink-0 items-center justify-center transition-opacity",
+              "flex h-6 w-4 shrink-0 items-center justify-center transition-opacity",
               (track.muted || track.hidden) && "opacity-60",
             )}
             title={`${track.name} (${track.type} track)${track.locked ? " • Locked" : ""}${track.muted ? " • Muted" : ""}${track.hidden ? " • Hidden" : ""}`}
@@ -216,19 +211,15 @@ export function TrackHeader({
 
         {/* Right: Lock, Hide, Mute, Menu Actions */}
         {!isRenaming && (
-          <div className="flex items-center gap-0.5 shrink-0">
+          <div className="flex shrink-0 items-center gap-0.5 rounded-sm bg-studio-panel-raised p-0.5">
             <IconButton
               label={track.locked ? "Unlock track" : "Lock track"}
               size="sm"
               variant="ghost"
               onClick={handleToggleLock}
+              aria-pressed={Boolean(track.locked)}
               tooltipPosition="top"
-              className={cn(
-                "h-6 w-6 p-0 rounded cursor-pointer transition-colors",
-                track.locked
-                  ? "text-studio-fg hover:text-studio-fg"
-                  : "text-studio-muted hover:text-studio-fg",
-              )}
+              className="size-5 rounded-sm p-0 text-studio-fg/85 aria-pressed:bg-studio-hover aria-pressed:text-brand"
             >
               {track.locked ? (
                 <Lock className="h-3 w-3" />
@@ -243,13 +234,9 @@ export function TrackHeader({
                 size="sm"
                 variant="ghost"
                 onClick={handleToggleHide}
+                aria-pressed={Boolean(track.hidden)}
                 tooltipPosition="top"
-                className={cn(
-                  "h-6 w-6 p-0 rounded cursor-pointer transition-colors",
-                  track.hidden
-                    ? "text-studio-fg hover:text-studio-fg"
-                    : "text-studio-muted hover:text-studio-fg",
-                )}
+                className="size-5 rounded-sm p-0 text-studio-fg/85 aria-pressed:bg-studio-hover aria-pressed:text-brand"
               >
                 {track.hidden ? (
                   <EyeOff className="h-3 w-3" />
@@ -265,13 +252,9 @@ export function TrackHeader({
                 size="sm"
                 variant="ghost"
                 onClick={handleToggleMute}
+                aria-pressed={Boolean(track.muted)}
                 tooltipPosition="top"
-                className={cn(
-                  "h-6 w-6 p-0 rounded cursor-pointer transition-colors",
-                  track.muted
-                    ? "text-studio-fg hover:text-studio-fg"
-                    : "text-studio-muted hover:text-studio-fg",
-                )}
+                className="size-5 rounded-sm p-0 text-studio-fg/85 aria-pressed:bg-studio-hover aria-pressed:text-brand"
               >
                 {track.muted ? (
                   <VolumeX className="h-3 w-3" />
@@ -288,7 +271,7 @@ export function TrackHeader({
                   label="Track options"
                   size="sm"
                   variant="ghost"
-                  className="h-6 w-6 p-0 rounded text-studio-muted hover:text-studio-fg"
+                  className="size-5 rounded-sm p-0 text-studio-muted hover:text-studio-fg"
                 >
                   <MoreVertical className="h-3 w-3" />
                 </IconButton>

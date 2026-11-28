@@ -1,85 +1,33 @@
-import { nanoid } from 'nanoid';
-import { useProjectStore } from '@/modules/projects';
-import type { TimelineClip } from '@/modules/editor/types';
+import { db } from "@/modules/core/db/database";
+import { resolveMediaAssetBlob } from "@/modules/core/storage/media-source-service";
+import { useEditorUIStore } from "@/modules/editor/store/useEditorUIStore";
+import { useProjectStore } from "@/modules/projects";
+import { useToastStore } from "@/shared/components/ui/Toast/useToastStore";
 
-export function detachAudioFromVideo(videoClipId: string): boolean {
-  const store = useProjectStore.getState();
-  const project = store.currentProject;
-  if (!project) return false;
-
-  let videoClip: TimelineClip | undefined;
-
-  for (const track of project.tracks) {
-    const c = track.clips.find((x) => x.id === videoClipId);
-    if (c) {
-      videoClip = c;
-      break;
-    }
-  }
-
-  if (!videoClip || (videoClip.type !== 'video' && videoClip.type !== 'overlay')) {
-    return false;
-  }
-
-  // Find or create an Audio Track
-  const audioTrack = project.tracks.find((t) => t.type === 'audio');
-
-  const newAudioClipId = nanoid();
-  const newTrackId = audioTrack ? audioTrack.id : nanoid();
-
-  const newAudioClip: TimelineClip = {
-    id: newAudioClipId,
-    trackId: newTrackId,
-    assetId: videoClip.assetId,
-    type: 'audio',
-    timelineStart: videoClip.timelineStart,
-    timelineDuration: videoClip.timelineDuration,
-    sourceStart: videoClip.sourceStart,
-    sourceDuration: videoClip.sourceDuration,
-    name: `${videoClip.name} (Audio)`,
-    speed: videoClip.speed ?? 1,
-    transform: { ...videoClip.transform },
-    adjustments: { ...videoClip.adjustments },
-    audio: {
-      volume: videoClip.audio?.volume ?? 1,
-      muted: false,
-      fadeIn: videoClip.audio?.fadeIn ?? 0,
-      fadeOut: videoClip.audio?.fadeOut ?? 0,
-    },
-  };
-
-  useProjectStore.setState((state) => {
-    if (!state.currentProject) return;
-
-    let targetTrack = state.currentProject.tracks.find((t) => t.type === 'audio');
-    if (!targetTrack) {
-      targetTrack = {
-        id: newTrackId,
-        type: 'audio',
-        name: 'Audio Track',
-        order: state.currentProject.tracks.length,
-        hidden: false,
-        locked: false,
-        muted: false,
-        clips: [],
-      };
-      state.currentProject.tracks.push(targetTrack);
-    }
-
-    // Add detached audio clip
-    targetTrack.clips.push(newAudioClip);
-
-    // Mute original video clip's audio
-    for (const t of state.currentProject.tracks) {
-      const clipToMute = t.clips.find((x) => x.id === videoClipId);
-      if (clipToMute) {
-        clipToMute.audio = {
-          ...clipToMute.audio,
-          muted: true,
-        };
+export async function detachAudioFromVideo(clipId: string) {
+  const project = useProjectStore.getState().currentProject;
+  const track = project?.tracks.find((item) => item.clips.some((clip) => clip.id === clipId));
+  const clip = track?.clips.find((item) => item.id === clipId);
+  if (!project || track?.locked || !clip?.assetId || clip.type !== "video" || clip.audio?.muted) return;
+  const toast = useToastStore.getState().showToast;
+  try {
+    const asset = await db.assets.get(clip.assetId);
+    if (!asset) throw new Error("The source video is missing.");
+    const { Input, ALL_FORMATS, BlobSource } = await import("mediabunny");
+    const input = new Input({ formats: ALL_FORMATS, source: new BlobSource(await resolveMediaAssetBlob(asset)) });
+    try {
+      if (!(await input.getPrimaryAudioTrack())) {
+        toast("This video has no audio track.", "warning");
+        return;
       }
+    } finally {
+      input.dispose();
     }
-  });
-
-  return true;
+    const store = useProjectStore.getState();
+    if (store.currentProject?.id !== project.id) return;
+    const audioClipId = store.detachClipAudio(clip.id, asset.id);
+    if (audioClipId) useEditorUIStore.getState().setSelectedClipIds([audioClipId]);
+  } catch (error) {
+    toast(`Could not detach audio: ${error instanceof Error ? error.message : String(error)}`, "error");
+  }
 }

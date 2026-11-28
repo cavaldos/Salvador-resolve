@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useProjectStore } from "@/modules/projects";
+import type { MediaAsset } from "@/modules/projects/types";
 import { useToastStore } from "@/shared/components/ui/Toast/useToastStore";
 import {
   processAndStoreMediaFile,
@@ -11,7 +12,7 @@ export interface UseMediaImporterReturn {
   importProgress: number;
   importStatus: ImportProgress | null;
   importErrors: string[];
-  importFiles: (files: FileList | File[]) => Promise<void>;
+  importFiles: (files: FileList | File[]) => Promise<MediaAsset[]>;
   cancelImport: () => void;
   clearErrors: () => void;
 }
@@ -21,7 +22,6 @@ export function useMediaImporter(): UseMediaImporterReturn {
   const [importProgress, setImportProgress] = useState(0);
   const [importStatus, setImportStatus] = useState<ImportProgress | null>(null);
   const [importErrors, setImportErrors] = useState<string[]>([]);
-  const currentProject = useProjectStore((state) => state.currentProject);
   const addAsset = useProjectStore((state) => state.addAsset);
   const abortControllerRef = useRef<AbortController | null>(null);
   const progressFrameRef = useRef<number | null>(null);
@@ -71,21 +71,23 @@ export function useMediaImporter(): UseMediaImporterReturn {
 
   const importFiles = useCallback(
     async (fileList: FileList | File[]) => {
+      if (abortControllerRef.current) return [];
+      const currentProject = useProjectStore.getState().currentProject;
       if (!currentProject) {
         setImportErrors(["No active project open."]);
         useToastStore.getState().showToast("No active project open", "warning");
-        return;
+        return [];
       }
 
       const files = Array.from(fileList);
-      if (files.length === 0) return;
+      if (files.length === 0) return [];
 
       setIsImporting(true);
       setImportProgress(0);
       const controller = new AbortController();
       abortControllerRef.current = controller;
       const errors: string[] = [];
-      let successCount = 0;
+      const imported: MediaAsset[] = [];
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
@@ -105,8 +107,9 @@ export function useMediaImporter(): UseMediaImporterReturn {
               },
             },
           );
+          if (controller.signal.aborted || useProjectStore.getState().currentProject?.id !== currentProject.id) break;
           addAsset(asset);
-          successCount++;
+          imported.push(asset);
           await new Promise<void>((resolve) =>
             requestAnimationFrame(() => resolve()),
           );
@@ -125,10 +128,10 @@ export function useMediaImporter(): UseMediaImporterReturn {
 
       if (errors.length > 0) {
         setImportErrors((prev) => [...prev, ...errors]);
-      } else if (successCount > 0) {
+      } else if (imported.length > 0) {
         useToastStore
           .getState()
-          .showToast(`Imported ${successCount} media asset(s)`, "success");
+          .showToast(`Imported ${imported.length} media asset(s)`, "success");
       }
 
       if (controller.signal.aborted) {
@@ -138,8 +141,9 @@ export function useMediaImporter(): UseMediaImporterReturn {
       abortControllerRef.current = null;
       setImportStatus(null);
       setIsImporting(false);
+      return controller.signal.aborted ? [] : imported;
     },
-    [addAsset, clearQueuedProgress, currentProject, queueProgress],
+    [addAsset, clearQueuedProgress, queueProgress],
   );
 
   return {

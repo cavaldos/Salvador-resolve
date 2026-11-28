@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from "react";
 import { usePlaybackStore } from "@/modules/editor/store/usePlaybackStore";
 import { playbackClock } from "@/modules/editor/features/playback/services/playback-clock";
-import { generateRulerTicks } from "../utils/ruler-utils";
+import { generateRulerTicks, timelineTimeFromPosition } from "../utils/ruler-utils";
 
 export interface TimeRulerProps {
   duration: number;
@@ -43,9 +43,7 @@ export function TimeRuler({
     const rect = rulerRef.current.getBoundingClientRect();
     // The ruler itself scrolls, so its bounding box already includes scrollLeft.
     const clickX = event.clientX - rect.left - RULER_OFFSET_X;
-    const time = Math.max(0, Math.min(duration, clickX / zoom));
-    const frameTime = Math.round(time * fps) / fps;
-    playbackClock.seek(Math.min(duration, frameTime));
+    playbackClock.seek(timelineTimeFromPosition(clickX, zoom, duration, fps));
   };
 
   const finishSeeking = (event: React.PointerEvent) => {
@@ -75,7 +73,7 @@ export function TimeRuler({
       onPointerCancel={finishSeeking}
       onLostPointerCapture={finishSeeking}
       style={{ minWidth: `${totalWidthPx}px` }}
-      className={`relative h-6 w-full touch-none border-b border-studio-border bg-studio-panel-raised/20 text-studio-muted select-none ${isSeeking ? "cursor-grabbing" : "cursor-pointer"}`}
+      className={`relative h-6 w-full touch-none border-b border-studio-border text-studio-muted select-none ${isSeeking ? "cursor-grabbing" : "cursor-pointer"}`}
     >
       {ticks.map((tick) => (
         <div
@@ -84,11 +82,11 @@ export function TimeRuler({
           className="pointer-events-none absolute inset-y-0"
         >
           <div
-            className={`w-px ${tick.isMajor ? "h-2 bg-studio-fg/35" : "h-1 bg-studio-border"}`}
+            className={`mt-1 w-px ${tick.isMajor ? "h-3 bg-studio-fg/35" : "h-1.5 bg-studio-fg/15"}`}
           />
           {tick.label && (
             <span
-              className="absolute bottom-0.5 -translate-x-1/2 whitespace-nowrap font-mono text-[10px] leading-none tabular-nums text-studio-muted"
+              className="absolute top-1 left-1.5 whitespace-nowrap text-[10px] leading-3 tabular-nums text-studio-muted"
             >
               {tick.label}
             </span>

@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
 import { useProjectStore } from "@/modules/projects";
-import { useEditorUIStore } from "@/modules/editor/store/useEditorUIStore";
+import { MIN_TRACK_HEADER_WIDTH, useEditorUIStore } from "@/modules/editor/store/useEditorUIStore";
 import { usePlaybackStore } from "@/modules/editor/store/usePlaybackStore";
+import { playbackClock } from "@/modules/editor/features/playback/services/playback-clock";
+import { timelineTimeFromPosition } from "../utils/ruler-utils";
 import type { TimelineClip, TrackType } from "@/modules/editor/types";
 import { TimelineToolbar } from "./TimelineToolbar";
 import { TimeRuler } from "./TimeRuler";
@@ -11,6 +13,7 @@ import { TrackLane } from "./TrackLane";
 import type { ClipDragAppearance } from "./TimelineClipItem";
 import { TimelineContextMenu } from "./TimelineContextMenu";
 import { snapTimelineTime } from "../utils/timeline-snap-utils";
+import { useTimelineInsertDrop } from "../hooks/useTimelineInsertDrop";
 import { preventClipOverlap } from "@/modules/editor/utils/timeline-utils";
 import {
   DndContext,
@@ -29,7 +32,6 @@ import {
   type SortingStrategy,
 } from "@dnd-kit/sortable";
 import {
-  FileVideo,
   Video,
   GripVertical,
   Image as ImageIcon,
@@ -48,6 +50,7 @@ import {
 } from "../utils/timeline-zoom-utils";
 
 const NEW_TRACK_DROP_THRESHOLD = 10;
+const TRACK_TOP_GAP = 32;
 // Keep headers aligned with their lanes until the reorder is committed.
 const stationaryTrackSortingStrategy: SortingStrategy = () => null;
 
@@ -114,7 +117,7 @@ function renderDragClipIcon(clipType: TimelineClip["type"]) {
 }
 
 export function TimelineEditor() {
-  const timelineRef = useRef<HTMLDivElement>(null);
+  const insertDrop = useTimelineInsertDrop();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const clipDragCleanupRef = useRef<(() => void) | null>(null);
 
@@ -133,14 +136,11 @@ export function TimelineEditor() {
     scrollLeft,
     setScrollLeft,
     snappingEnabled,
-    selectedClipIds,
     clearSelection,
-    trackHeaderWidth: rawTrackHeaderWidth = 180,
-    setTrackHeaderWidth,
-    showTrackHeaders: savedShowTrackHeaders = false,
-    toggleTrackHeaders,
+    trackHeaderWidth: rawTrackHeaderWidth,
+    showTrackHeaders: savedShowTrackHeaders,
   } = useEditorUIStore();
-  const trackHeaderWidth = Math.max(170, rawTrackHeaderWidth);
+  const trackHeaderWidth = Math.max(MIN_TRACK_HEADER_WIDTH, rawTrackHeaderWidth);
   const showTrackHeaders =
     savedShowTrackHeaders && (currentProject?.tracks.length ?? 0) > 0;
   const { playhead, isPlaying } = usePlaybackStore();
@@ -148,26 +148,22 @@ export function TimelineEditor() {
   const handleStartResizeTrackHeader = (e: React.PointerEvent) => {
     e.preventDefault();
     const startX = e.clientX;
-    const startWidth = Math.max(
-      170,
-      useEditorUIStore.getState().trackHeaderWidth || 180,
-    );
+    const startWidth = trackHeaderWidth;
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const deltaX = moveEvent.clientX - startX;
       const rawWidth = startWidth + deltaX;
 
       // Snap to collapse if dragged below threshold
-      if (rawWidth < 135) {
-        useEditorUIStore.getState().setShowTrackHeaders?.(false);
-        useEditorUIStore.getState().setTrackHeaderWidth?.(170);
+      if (rawWidth < MIN_TRACK_HEADER_WIDTH - 26) {
+        useEditorUIStore.getState().setShowTrackHeaders(false);
+        useEditorUIStore.getState().setTrackHeaderWidth(MIN_TRACK_HEADER_WIDTH);
         window.removeEventListener("pointermove", handlePointerMove);
         window.removeEventListener("pointerup", handlePointerUp);
         return;
       }
 
-      const newWidth = Math.max(170, Math.min(400, rawWidth));
-      useEditorUIStore.getState().setTrackHeaderWidth?.(newWidth);
+      useEditorUIStore.getState().setTrackHeaderWidth(rawWidth);
     };
 
     const handlePointerUp = () => {
@@ -386,7 +382,6 @@ export function TimelineEditor() {
     const newScrollLeft = target.scrollLeft;
     const newScrollTop = target.scrollTop;
 
-    timelineRef.current?.style.setProperty("--timeline-scroll-top", `${newScrollTop}px`);
     setScrollLeft(newScrollLeft);
 
     rulerContainerRef.current?.scrollTo({ left: newScrollLeft });
@@ -483,7 +478,7 @@ export function TimelineEditor() {
         );
         const pointerY =
           rect && scroller
-            ? moveEv.clientY - rect.top + scroller.scrollTop
+            ? moveEv.clientY - rect.top + scroller.scrollTop - TRACK_TOP_GAP
             : (currentTrackIndex + 0.5) * trackHeight + deltaY;
         const isClearlyBelowLastTrack =
           pointerY >= tracks.length * trackHeight + NEW_TRACK_DROP_THRESHOLD;
@@ -660,27 +655,8 @@ export function TimelineEditor() {
   };
 
   // Compute dynamic scrubber line height: only extend down to the lowest track that has intersecting media
-  let maxIntersectingTrackIndex = -1;
-  tracks.forEach((track, index) => {
-    const isIntersecting = track.clips.some((clip) => {
-      // clip.timelineDuration might be a bit loose due to floating point, so add a tiny epsilon
-      return (
-        playhead >= clip.timelineStart &&
-        playhead < clip.timelineStart + clip.timelineDuration + 0.01
-      );
-    });
-    if (isIntersecting) {
-      maxIntersectingTrackIndex = index;
-    }
-  });
-
-  const playheadLineHeight =
-    maxIntersectingTrackIndex >= 0
-      ? (maxIntersectingTrackIndex + 1) * trackHeight - 4
-      : 0;
-
   return (
-    <div ref={timelineRef} className="flex h-full w-full flex-col bg-transparent text-studio-fg select-none overflow-hidden">
+    <div className="@container/timeline flex h-full w-full flex-col overflow-hidden bg-studio-panel text-studio-fg select-none">
       {/* Top Timeline Toolbar */}
       <TimelineToolbar
         fitTimelineZoom={fitTimelineZoom}
@@ -690,7 +666,7 @@ export function TimelineEditor() {
       {/* Fixed Time Ruler Header Row */}
       <div
         className={cn(
-          "flex h-6 w-full shrink-0 bg-transparent z-20",
+          "z-20 flex h-6 w-full shrink-0",
           timelineClipCount === 0 && "hidden",
         )}
       >
@@ -698,17 +674,10 @@ export function TimelineEditor() {
         <div
           style={{ width: `${trackHeaderWidth}px` }}
           className={cn(
-            "flex shrink-0 items-center justify-between border-b border-r border-studio-border bg-transparent px-3",
+            "shrink-0 border-b border-studio-border",
             !showTrackHeaders && "hidden",
           )}
-        >
-          <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-studio-muted">
-            Tracks
-          </span>
-          <span className="rounded bg-studio-panel-raised px-1.5 py-0.5 font-mono text-[8px] text-studio-muted">
-            {tracks.length}
-          </span>
-        </div>
+        />
 
         {/* Resizer separator line */}
         <div
@@ -728,21 +697,13 @@ export function TimelineEditor() {
               viewportWidth={timelineViewportWidth}
             />
           </div>
-          <div className="pointer-events-none absolute inset-0 z-30 overflow-x-clip overflow-y-visible">
+          <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-30 overflow-hidden">
             <div
-              className="absolute top-0 w-3 -translate-x-1/2"
+              className="absolute inset-y-0 flex w-3 -translate-x-1/2 flex-col items-center"
               style={{ left: playheadLeftPx }}
             >
-              <div
-                className="relative z-10 h-3 w-3 rounded-t-[2px] bg-studio-fg"
-                style={{ clipPath: "polygon(0 0, 100% 0, 100% 45%, 50% 100%, 0 45%)" }}
-              />
-              <div
-                className="absolute left-1/2 top-2.5 w-0.5 -translate-x-1/2 bg-studio-fg"
-                style={{
-                  height: `max(14px, calc(${14 + playheadLineHeight}px - var(--timeline-scroll-top, 0px)))`,
-                }}
-              />
+              <div className="h-3 w-[9px] shrink-0 rounded-t-[2px] rounded-b-[4px] border-2 border-studio-fg bg-studio-panel" />
+              <div className="w-px flex-1 bg-studio-fg" />
             </div>
           </div>
         </div>
@@ -761,10 +722,11 @@ export function TimelineEditor() {
           }}
           style={{ width: `${trackHeaderWidth}px` }}
           className={cn(
-            "shrink-0 bg-transparent border-r border-studio-border z-10 flex flex-col overflow-x-hidden overflow-y-auto no-scrollbar",
+            "z-10 flex shrink-0 flex-col overflow-x-hidden overflow-y-auto no-scrollbar",
             !showTrackHeaders && "hidden",
           )}
         >
+          <div aria-hidden="true" className="shrink-0" style={{ height: TRACK_TOP_GAP }} />
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -813,7 +775,7 @@ export function TimelineEditor() {
                   {activeTrackDrag && (
                     <div
                       style={{
-                        width: `${Math.max(176, trackHeaderWidth - 8)}px`,
+                        width: `${trackHeaderWidth - 8}px`,
                         height: trackHeight,
                       }}
                       className="pointer-events-none flex items-center gap-2 rounded-lg border border-studio-border-strong bg-studio-panel-raised/95 px-2 text-studio-fg shadow-2xl ring-1 ring-studio-border backdrop-blur-md"
@@ -868,7 +830,7 @@ export function TimelineEditor() {
         <div
           onPointerDown={handleStartResizeTrackHeader}
           className={cn(
-            "w-px bg-studio-border hover:bg-studio-fg/40 active:bg-studio-fg/60 hover:w-[3px] z-30 cursor-col-resize transition-all shrink-0 h-full",
+            "relative z-30 h-full w-px shrink-0 cursor-col-resize bg-studio-border transition-colors after:absolute after:inset-y-0 after:-inset-x-1 hover:bg-studio-fg/40 active:bg-studio-fg/60",
             !showTrackHeaders && "hidden",
           )}
           title="Drag to resize track headers"
@@ -877,6 +839,8 @@ export function TimelineEditor() {
         {/* Right Area: Track Canvas Lanes */}
         <div
           ref={scrollContainerRef}
+          data-timeline-drop-zone
+          {...insertDrop.handlers}
           onScroll={handleScroll}
           onPointerDown={(e) => {
             const target = e.target as HTMLElement | null;
@@ -889,6 +853,11 @@ export function TimelineEditor() {
             }
             if (e.button === 0) {
               clearSelection();
+              const rect = e.currentTarget.getBoundingClientRect();
+              const position = e.clientX - rect.left + e.currentTarget.scrollLeft - 16;
+              const { duration, fps, setIsPlaying } = usePlaybackStore.getState();
+              setIsPlaying(false);
+              playbackClock.seek(timelineTimeFromPosition(position, zoom, duration, fps));
             }
           }}
           onContextMenu={(e) => {
@@ -914,6 +883,18 @@ export function TimelineEditor() {
           }}
           className="flex-1 overflow-auto relative h-full timeline-bottom-scrollbar"
         >
+          {insertDrop.hover && (
+            <div
+              aria-hidden="true"
+              className={cn("pointer-events-none absolute inset-y-0 z-50 w-0.5", insertDrop.hover.valid ? "bg-brand" : "bg-destructive")}
+              style={{ left: 16 + insertDrop.hover.time * zoom }}
+            />
+          )}
+          {insertDrop.isImporting && (
+            <p role="status" className="pointer-events-none absolute bottom-2 right-3 z-50 rounded-md bg-studio-panel px-2 py-1 text-xs">
+              Importing files…
+            </p>
+          )}
           {/* Track Lanes */}
           {tracks.length === 0 ? (
             <div className="flex h-full min-h-32 w-full items-center justify-center px-6 py-5 text-center">
@@ -929,20 +910,14 @@ export function TimelineEditor() {
                   Start with your first clip
                 </p>
                 <p className="mt-3 max-w-xs text-xs leading-6 text-studio-muted">
-                  Add media from your library, or create a track using{" "}
-                  <span className="font-medium text-studio-fg/80">Add Track</span>{" "}
-                  above.
+                  Drag media, files, text, or shapes here, or add them from the library.
                 </p>
               </div>
             </div>
           ) : (
             <div
-              className="flex flex-col relative w-full h-fit"
-              style={
-                totalWidthPx > 0
-                  ? { minWidth: `${totalWidthPx}px` }
-                  : undefined
-              }
+              className="relative flex h-fit w-full flex-col"
+              style={{ marginTop: TRACK_TOP_GAP, minWidth: totalWidthPx || undefined }}
             >
               {tracks.map((track) => {
                 const isDropTarget = Boolean(
@@ -980,21 +955,18 @@ export function TimelineEditor() {
                 );
               })}
 
-              {clipDragPreview && (
-                <div
-                  style={{
-                    height: trackHeight,
-                    minWidth: totalWidthPx > 0 ? totalWidthPx : undefined,
-                  }}
-                  className={cn(
-                    "relative flex w-full items-center justify-center gap-2 border-y border-dashed border-studio-border-strong text-[11px] text-studio-muted",
-                    clipDragPreview.createTrack && "bg-studio-hover/50 text-studio-fg",
-                  )}
-                >
-                  <Plus aria-hidden="true" className="h-3.5 w-3.5" />
-                  Drop here to create a track
-                </div>
-              )}
+              <div
+                aria-hidden={!clipDragPreview && !insertDrop.hover}
+                style={{ height: clipDragPreview ? trackHeight : 28 }}
+                className={cn(
+                  "relative flex w-full items-center gap-2 border-t border-dashed border-transparent px-4 text-[11px] text-transparent",
+                  (clipDragPreview || insertDrop.hover) && "border-studio-border text-studio-muted",
+                  clipDragPreview?.createTrack && "bg-studio-hover/50 text-studio-fg",
+                )}
+              >
+                <Plus aria-hidden="true" className="size-3.5" />
+                Drop here to create a track
+              </div>
 
               {clipDragPreview && (
                 <div
@@ -1068,6 +1040,19 @@ export function TimelineEditor() {
             </div>
           )}
         </div>
+
+        {timelineClipCount > 0 && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 right-0 z-30 overflow-hidden"
+            style={{ left: showTrackHeaders ? trackHeaderWidth + 1 : 0 }}
+          >
+            <div
+              className="absolute inset-y-0 w-px -translate-x-1/2 bg-studio-fg"
+              style={{ left: playheadLeftPx }}
+            />
+          </div>
+        )}
       </div>
 
       {timelineContextMenu && (

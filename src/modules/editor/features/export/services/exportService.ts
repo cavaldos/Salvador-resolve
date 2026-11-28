@@ -15,6 +15,7 @@ import {
 import { pauseExportMedia, synchronizeExportMedia } from "./export-media-sync";
 import type {
   ExportFormat,
+  ExportFps,
   ExportResolution,
   ExportQuality,
   ExportPhase,
@@ -29,8 +30,9 @@ export interface ExportSettings {
   filename: string;
   format: ExportFormat;
   resolution: ExportResolution;
-  fps: 24 | 30 | 60;
+  fps: ExportFps;
   quality: ExportQuality;
+  videoBitrate?: number;
 }
 
 export interface ExportCallbacks {
@@ -110,6 +112,7 @@ export async function runExportTask(
     if (!preflight.hasEnoughStorage) {
       throw new Error("Not enough free storage for the estimated export size.");
     }
+    if (preflight.blockingReason) throw new Error(preflight.blockingReason);
     if (preflight.isLongExport) {
       outputTarget = await createExportOutputTarget(
         project.id,
@@ -411,34 +414,36 @@ export async function runExportTask(
         const outputName = "output.mp4";
 
         await ffmpeg.writeFile(inputName, await fetchFile(encodedBlob));
-        await ffmpeg.exec([
+        const exitCode = await ffmpeg.exec([
           "-i",
           inputName,
           "-c:v",
           "libx264",
+          "-b:v",
+          String(preflight.videoBitrate),
           "-c:a",
           "aac",
+          ...(preflight.hasAudio ? ["-b:a", String(preflight.audioBitrate)] : []),
           "-preset",
           "ultrafast",
           outputName,
         ]);
 
+        if (exitCode !== 0) throw new Error(`FFmpeg exited with status ${exitCode}.`);
         const mp4Data = await ffmpeg.readFile(outputName);
-        finalExportBlob = new Blob([mp4Data as unknown as BlobPart], {
-          type: "video/mp4",
-        });
+        if (typeof mp4Data === "string") throw new Error("FFmpeg did not return binary video.");
+        finalExportBlob = new Blob([new Uint8Array(mp4Data)], { type: "video/mp4" });
         fileExtension = "mp4";
 
         // Clean up FFmpeg virtual files
         try {
           await ffmpeg.deleteFile(inputName);
           await ffmpeg.deleteFile(outputName);
-        } catch {}
+        } catch (error) {
+          console.warn("Could not clean up FFmpeg export files:", error);
+        }
       } catch (ffmpegErr) {
-        console.warn("FFmpeg MP4 conversion fallback to WebM:", ffmpegErr);
-        // Fallback to WebM if FFmpeg WASM fails or SharedArrayBuffer is unsupported
-        finalExportBlob = encodedBlob;
-        fileExtension = preflight.extension;
+        throw new Error("Could not convert this video to MP4. Try WebM instead.", { cause: ffmpegErr });
       }
     }
 
@@ -463,7 +468,9 @@ export async function runExportTask(
     if (mediaRecorder && mediaRecorder.state !== "inactive") {
       try {
         mediaRecorder.stop();
-      } catch {}
+      } catch (error) {
+        console.warn("Could not stop the export recorder:", error);
+      }
     }
     if (combinedStream) {
       combinedStream.getTracks().forEach((t) => t.stop());
@@ -479,18 +486,6 @@ export async function runExportTask(
       }
     });
     await wakeLock?.release().catch(() => undefined);
-  }
-}
-
-function getBitrateForQuality(quality: ExportQuality): number {
-  switch (quality) {
-    case "draft":
-      return 3_000_000; // 3 Mbps
-    case "high":
-      return 15_000_000; // 15 Mbps
-    case "standard":
-    default:
-      return 8_000_000; // 8 Mbps
   }
 }
 

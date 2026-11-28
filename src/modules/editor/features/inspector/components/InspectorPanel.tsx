@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useEditorUIStore } from "@/modules/editor/store/useEditorUIStore";
 import { useProjectStore } from "@/modules/projects";
 import { ProjectPanel } from "@/shared/components/layout/ProjectPanel";
@@ -11,6 +11,7 @@ import {
 import { Slider } from "@/shared/components/ui/Slider";
 import { TransformTab } from "./TransformTab";
 import { AdjustTab } from "./AdjustTab";
+import { AnimationTab } from "./AnimationTab";
 import { AudioTab } from "./AudioTab";
 import { SpeedTab } from "./SpeedTab";
 import { TimeTab } from "./TimeTab";
@@ -18,19 +19,7 @@ import { CanvasSettingsPanel } from "./CanvasSettingsPanel";
 import { TextInspectorTab } from "@/modules/editor/features/text";
 import { ElementInspectorTab } from "@/modules/editor/features/elements";
 import { cn } from "@/shared/utils/cn";
-import {
-  Trash2,
-  Layers,
-  ChevronDown,
-  Check,
-  Type,
-  Sparkles,
-  Move,
-  Sliders,
-  Volume2,
-  Gauge,
-  Clock,
-} from "lucide-react";
+import { Trash2, Layers, Clock } from "lucide-react";
 import { usePlaybackStore } from "@/modules/editor/store/usePlaybackStore";
 import type { TimelineClip } from "@/modules/editor/types";
 
@@ -45,8 +34,8 @@ function getValidTabsForClip(clip: TimelineClip): string[] {
   if (isText) tabs.push("text");
   if (isElement) tabs.push("element");
   if (clip.type !== "audio" && clip.type !== "text") tabs.push("transform");
-  if (isVisual) tabs.push("adjust");
   if (hasAudio) tabs.push("audio", "speed");
+  if (isVisual) tabs.push("animation", "adjust");
   tabs.push("time");
   return tabs;
 }
@@ -58,118 +47,16 @@ function getDefaultTabForClip(clip: TimelineClip): string {
   return "transform";
 }
 
-interface InspectorTabItem {
-  value: string;
-  label: string;
-  icon: React.ReactNode;
-}
-
-function InspectorTabDropdown({
-  tabs,
-  activeTab,
-  onTabChange,
-}: {
-  tabs: InspectorTabItem[];
-  activeTab: string;
-  onTabChange: (tab: string) => void;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleClickOutside = (e: MouseEvent) => {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(e.target as Node)
-      ) {
-        setIsOpen(false);
-      }
-    };
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setIsOpen(false);
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isOpen]);
-
-  const activeTabObj = tabs.find((t) => t.value === activeTab) || tabs[0];
-
-  return (
-    <div ref={dropdownRef} className="relative mb-3 w-full">
-      <button
-        type="button"
-        onClick={() => setIsOpen((prev) => !prev)}
-        aria-haspopup="listbox"
-        aria-expanded={isOpen}
-        className={cn(
-          "flex h-9 w-full cursor-pointer select-none items-center justify-between rounded-lg border px-3 text-xs transition-colors",
-          isOpen
-            ? "border-studio-border-strong bg-studio-panel-raised text-studio-fg"
-            : "border-studio-border bg-studio-panel-raised/50 text-studio-fg hover:border-studio-border-strong hover:bg-studio-hover"
-        )}
-      >
-        <span className="flex items-center gap-2 font-medium text-studio-fg">
-          {activeTabObj?.icon}
-          <span>{activeTabObj?.label}</span>
-        </span>
-        <ChevronDown
-          className={cn(
-            "h-3.5 w-3.5 text-studio-muted shrink-0 transition-transform",
-            isOpen && "rotate-180 text-studio-fg"
-          )}
-        />
-      </button>
-
-      {isOpen && (
-        <div
-          role="listbox"
-          className="absolute left-0 right-0 top-full z-50 mt-1.5 rounded-xl border border-studio-border bg-studio-panel p-1.5 shadow-2xl backdrop-blur-md animate-in fade-in-80"
-        >
-          <div className="flex flex-col gap-0.5">
-            {tabs.map((t) => {
-              const isSelected = t.value === activeTab;
-              return (
-                <button
-                  key={t.value}
-                  type="button"
-                  onClick={() => {
-                    onTabChange(t.value);
-                    setIsOpen(false);
-                  }}
-                  role="option"
-                  aria-selected={isSelected}
-                  className={cn(
-                    "flex min-h-8 w-full cursor-pointer items-center justify-between rounded-lg px-2.5 py-1.5 text-xs transition-colors",
-                    isSelected
-                      ? "bg-studio-hover font-semibold text-studio-fg"
-                      : "text-studio-fg/90 hover:bg-studio-hover/60 hover:text-studio-fg"
-                  )}
-                >
-                  <div className="flex items-center gap-2.5 font-medium">
-                    {t.icon}
-                    <span>{t.label}</span>
-                  </div>
-                  {isSelected && (
-                    <Check className="h-3.5 w-3.5 text-studio-fg shrink-0 ml-2 stroke-[2.5]" />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+const tabLabels: Record<string, string> = {
+  text: "Text",
+  element: "Shape",
+  transform: "Video",
+  audio: "Audio",
+  speed: "Speed",
+  animation: "Animation",
+  adjust: "Adjust",
+  time: "Time",
+};
 
 export function InspectorPanel({
   view,
@@ -177,8 +64,8 @@ export function InspectorPanel({
   sidebarAction,
 }: {
   view?: "clip" | "canvas";
-  dockAction?: React.ReactNode;
-  sidebarAction?: React.ReactNode;
+  dockAction?: ReactNode;
+  sidebarAction?: ReactNode;
 } = {}) {
   const selectedClipIds = useEditorUIStore((state) => state.selectedClipIds);
   const clearSelection = useEditorUIStore((state) => state.clearSelection);
@@ -190,23 +77,9 @@ export function InspectorPanel({
   );
   const inspectorMode = useEditorUIStore((state) => state.inspectorMode);
   const setInspectorMode = useEditorUIStore((state) => state.setInspectorMode);
-  const leftPanelWidth = useEditorUIStore((state) => state.leftPanelWidth);
   const currentProject = useProjectStore((state) => state.currentProject);
   const deleteClips = useProjectStore((state) => state.deleteClips);
   const updateClip = useProjectStore((state) => state.updateClip);
-
-  const [isNarrow, setIsNarrow] = useState(view === "clip" || leftPanelWidth < 420);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const updateWidth = () => setIsNarrow(container.clientWidth < 420);
-    updateWidth();
-    const observer = new ResizeObserver(updateWidth);
-    observer.observe(container);
-    return () => observer.disconnect();
-  }, [view, inspectorMode, selectedClipIds.length]);
 
   // When selected clip changes, automatically switch to clip inspector mode and seek playhead
   useEffect(() => {
@@ -306,7 +179,7 @@ export function InspectorPanel({
       {sidebarAction}
     </>
   );
-  const clipPanelClass = cn("h-full w-full", view === "clip" && "lg:min-w-0");
+  const clipPanelClass = cn("h-full w-full rounded-lg", view === "clip" && "lg:min-w-0");
 
   // Multi-selection inspector
   if (selectedClips.length > 1) {
@@ -366,161 +239,52 @@ export function InspectorPanel({
     );
   }
 
-  // Single clip inspector
   const clip = selectedClips[0];
-  const isVisual =
-    clip.type === "video" || clip.type === "image" || clip.type === "overlay";
-  const hasAudio = clip.type === "video" || clip.type === "audio";
-  const isText = clip.type === "text";
-  const isElement = clip.type === "overlay";
-
-  // Build available inspector tabs
-  const availableTabs: InspectorTabItem[] = [];
-  if (isText)
-    availableTabs.push({
-      value: "text",
-      label: "Text",
-      icon: (
-        <Type className="h-3.5 w-3.5 text-studio-muted shrink-0 group-data-[state=active]:text-studio-fg transition-colors" />
-      ),
-    });
-  if (isElement)
-    availableTabs.push({
-      value: "element",
-      label: "Shape",
-      icon: (
-        <Sparkles className="h-3.5 w-3.5 text-studio-muted shrink-0 group-data-[state=active]:text-studio-fg transition-colors" />
-      ),
-    });
-  if (clip.type !== "audio" && clip.type !== "text")
-    availableTabs.push({
-      value: "transform",
-      label: "Transform",
-      icon: (
-        <Move className="h-3.5 w-3.5 text-studio-muted shrink-0 group-data-[state=active]:text-studio-fg transition-colors" />
-      ),
-    });
-  if (isVisual)
-    availableTabs.push({
-      value: "adjust",
-      label: "Adjust",
-      icon: (
-        <Sliders className="h-3.5 w-3.5 text-studio-muted shrink-0 group-data-[state=active]:text-studio-fg transition-colors" />
-      ),
-    });
-  if (hasAudio)
-    availableTabs.push({
-      value: "audio",
-      label: "Audio",
-      icon: (
-        <Volume2 className="h-3.5 w-3.5 text-studio-muted shrink-0 group-data-[state=active]:text-studio-fg transition-colors" />
-      ),
-    });
-  if (hasAudio)
-    availableTabs.push({
-      value: "speed",
-      label: "Speed",
-      icon: (
-        <Gauge className="h-3.5 w-3.5 text-studio-muted shrink-0 group-data-[state=active]:text-studio-fg transition-colors" />
-      ),
-    });
-  availableTabs.push({
-    value: "time",
-    label: "Time",
-    icon: (
-      <Clock className="h-3.5 w-3.5 text-studio-muted shrink-0 group-data-[state=active]:text-studio-fg transition-colors" />
-    ),
-  });
+  const availableTabs = getValidTabsForClip(clip);
+  const defaultTab = getDefaultTabForClip(clip);
+  const activeTab = availableTabs.includes(activeInspectorTab) ? activeInspectorTab : defaultTab;
 
   return (
-    <div className="relative h-full w-full overflow-hidden">
-      {/* Clip Properties View */}
-      <div className="h-full w-full">
-        <ProjectPanel
-          title={view === "clip" ? "Clip Properties" : clip.name}
-          actions={clipActions}
-          className={clipPanelClass}
-        >
-          <div
-            ref={containerRef}
-            className="h-full w-full overflow-y-auto p-3 no-scrollbar"
-          >
-            {view === "clip" && (
-              <p title={clip.name} className="mb-3 truncate text-xs font-medium text-studio-muted">
-                {clip.name}
-              </p>
-            )}
-            <Tabs
-              defaultValue={isText ? "text" : isElement ? "element" : "transform"}
-              value={activeInspectorTab}
-              onValueChange={setActiveInspectorTab}
-              variant="line"
+    <ProjectPanel title={clip.name} actions={clipActions} className={clipPanelClass}>
+      <Tabs
+        defaultValue={defaultTab}
+        value={activeTab}
+        onValueChange={setActiveInspectorTab}
+        variant="line"
+        className="flex h-full min-h-0 flex-col"
+      >
+        <TabList aria-label="Clip properties" className="app-custom-scrollbar shrink-0 gap-0 overflow-x-auto px-1">
+          {availableTabs.map((tab) => (
+            <TabTrigger
+              key={tab}
+              value={tab}
+              aria-label={tabLabels[tab]}
+              title={tab === "time" ? "Time" : undefined}
+              className={cn(
+                "min-h-9 shrink-0 px-1.5 text-xs text-studio-fg after:hidden hover:bg-studio-hover focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cyan-500 data-[state=active]:text-cyan-700 dark:data-[state=active]:text-cyan-300",
+                tab === "time" && "flex-none px-2",
+              )}
             >
-              {isNarrow ? (
-                /* Categories for panels narrower than 420px. */
-                <InspectorTabDropdown
-                  tabs={availableTabs}
-                  activeTab={activeInspectorTab}
-                  onTabChange={setActiveInspectorTab}
-                />
-              ) : (
-                /* Category tabs for panels at least 420px wide. */
-                <TabList className="mb-3 flex w-full shrink-0 items-center gap-0 overflow-x-auto no-scrollbar">
-                  {availableTabs.map((t) => (
-                    <TabTrigger
-                      key={t.value}
-                      value={t.value}
-                    >
-                      {t.icon}
-                      <span>{t.label}</span>
-                    </TabTrigger>
-                  ))}
-                </TabList>
-              )}
+              {tab === "time" ? <Clock className="size-3.5" aria-hidden="true" /> : tabLabels[tab]}
+            </TabTrigger>
+          ))}
+        </TabList>
 
-              {isText && (
-                <TabContent value="text">
-                  <TextInspectorTab clip={clip} />
-                </TabContent>
-              )}
-
-              {isElement && (
-                <TabContent value="element">
-                  <ElementInspectorTab clip={clip} />
-                </TabContent>
-              )}
-
-              {clip.type !== "audio" && clip.type !== "text" && (
-                <TabContent value="transform">
-                  <TransformTab clip={clip} />
-                </TabContent>
-              )}
-
-              {isVisual && (
-                <TabContent value="adjust">
-                  <AdjustTab clip={clip} />
-                </TabContent>
-              )}
-
-              {hasAudio && (
-                <TabContent value="audio">
-                  <AudioTab clip={clip} />
-                </TabContent>
-              )}
-
-              {hasAudio && (
-                <TabContent value="speed">
-                  <SpeedTab clip={clip} />
-                </TabContent>
-              )}
-
-              <TabContent value="time">
-                <TimeTab clip={clip} />
-              </TabContent>
-            </Tabs>
-          </div>
-        </ProjectPanel>
-      </div>
-    </div>
+        <TabContent value={activeTab} className="mt-0 min-h-0 flex-1 overflow-hidden">
+          {activeTab === "transform" && <TransformTab key={clip.id} clip={clip} />}
+          {activeTab === "audio" && <AudioTab key={clip.id} clip={clip} />}
+          {activeTab === "speed" && <SpeedTab key={clip.id} clip={clip} />}
+          {activeTab === "animation" && <AnimationTab key={clip.id} />}
+          {activeTab === "adjust" && <AdjustTab key={clip.id} clip={clip} />}
+          {(activeTab === "text" || activeTab === "element" || activeTab === "time") && (
+            <div className="app-custom-scrollbar h-full overflow-y-auto p-3">
+              {activeTab === "text" && <TextInspectorTab clip={clip} />}
+              {activeTab === "element" && <ElementInspectorTab clip={clip} />}
+              {activeTab === "time" && <TimeTab clip={clip} />}
+            </div>
+          )}
+        </TabContent>
+      </Tabs>
+    </ProjectPanel>
   );
 }

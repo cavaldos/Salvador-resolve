@@ -5,9 +5,13 @@ import type { EditorTool } from "../types";
 import { useProjectStore } from "@/modules/projects";
 import { usePlaybackStore } from "./usePlaybackStore";
 import { clampTimelineZoom } from "../features/timeline/utils/timeline-zoom-utils";
+import { maximumTimelineHeight, type WorkspaceLayout } from "../components/shell/workspaceLayouts";
 
 export const MIN_TRACK_HEIGHT = 48;
 export const MAX_TRACK_HEIGHT = 144;
+export const MIN_TRACK_HEADER_WIDTH = 132;
+export const DEFAULT_TRACK_HEADER_WIDTH = 140;
+const DEFAULT_TRACK_HEIGHT = 64;
 
 const DEFAULT_EDITOR_LAYOUT = {
   leftPanelWidth: 410,
@@ -44,6 +48,8 @@ interface EditorUIState {
   inspectorMode: "clip" | "canvas";
   clipInspectorSide: "left" | "right";
   isLeftSidebarCollapsed: boolean;
+  isInspectorCollapsed: boolean;
+  workspaceLayout: WorkspaceLayout;
   selectedClipIds: string[];
   activeTrackId: string | null;
   zoom: number; // Pixels per second
@@ -66,6 +72,8 @@ interface EditorUIState {
   setInspectorMode: (mode: "clip" | "canvas") => void;
   setClipInspectorSide: (side: "left" | "right") => void;
   setLeftSidebarCollapsed: (collapsed: boolean) => void;
+  setInspectorCollapsed: (collapsed: boolean) => void;
+  applyWorkspaceLayout: (layout: WorkspaceLayout, viewportHeight: number) => void;
   setSelectedClipIds: (ids: string[]) => void;
   toggleClipSelection: (id: string, multiSelect?: boolean) => void;
   clearSelection: () => void;
@@ -96,6 +104,8 @@ export const useEditorUIStore = create<EditorUIState>()(
       inspectorMode: "clip",
       clipInspectorSide: "right",
       isLeftSidebarCollapsed: false,
+      isInspectorCollapsed: false,
+      workspaceLayout: "studio",
       selectedClipIds: [],
       activeTrackId: null,
       zoom: 50, // 50px per second default timeline zoom
@@ -103,9 +113,9 @@ export const useEditorUIStore = create<EditorUIState>()(
       previewScale: 1,
       snappingEnabled: true,
       ...DEFAULT_EDITOR_LAYOUT,
-      trackHeight: MIN_TRACK_HEIGHT,
-      trackHeaderWidth: 180,
-      showTrackHeaders: false,
+      trackHeight: DEFAULT_TRACK_HEIGHT,
+      trackHeaderWidth: DEFAULT_TRACK_HEADER_WIDTH,
+      showTrackHeaders: true,
       stageScale: 0.5,
       zoomMode: "fit",
       resetViewCount: 0,
@@ -136,6 +146,28 @@ export const useEditorUIStore = create<EditorUIState>()(
       setLeftSidebarCollapsed: (collapsed) =>
         set((state) => {
           state.isLeftSidebarCollapsed = collapsed;
+          if (collapsed && !state.isInspectorCollapsed) state.clipInspectorSide = "right";
+        }),
+
+      setInspectorCollapsed: (collapsed) =>
+        set((state) => {
+          state.isInspectorCollapsed = collapsed;
+          if (!collapsed && state.isLeftSidebarCollapsed) state.clipInspectorSide = "right";
+        }),
+
+      applyWorkspaceLayout: (layout, viewportHeight) =>
+        set((state) => {
+          const cinema = layout === "cinema-preview";
+          const inspectorFocus = layout === "inspector-focus";
+          state.workspaceLayout = layout;
+          state.clipInspectorSide = "right";
+          state.isLeftSidebarCollapsed = cinema || inspectorFocus;
+          state.isInspectorCollapsed = cinema;
+          state.leftPanelWidth = DEFAULT_EDITOR_LAYOUT.leftPanelWidth;
+          state.rightPanelWidth = inspectorFocus ? 480 : DEFAULT_EDITOR_LAYOUT.rightPanelWidth;
+          const preferredHeight = cinema ? 160 : inspectorFocus ? 220 : layout === "timeline-focus" ? 500 : DEFAULT_EDITOR_LAYOUT.timelineHeight;
+          state.timelineHeight = Math.min(preferredHeight, maximumTimelineHeight(layout, viewportHeight));
+          state.showTrackHeaders = !cinema;
         }),
 
       setSelectedClipIds: (ids) =>
@@ -215,7 +247,7 @@ export const useEditorUIStore = create<EditorUIState>()(
 
       setTrackHeaderWidth: (width) =>
         set((state) => {
-          state.trackHeaderWidth = Math.min(400, Math.max(170, width));
+          state.trackHeaderWidth = Math.min(400, Math.max(MIN_TRACK_HEADER_WIDTH, width));
         }),
 
       setTrackHeight: (height) =>
@@ -260,18 +292,20 @@ export const useEditorUIStore = create<EditorUIState>()(
     })),
     {
       name: "cutnora-editor-ui-store",
-      version: 1,
+      version: 2,
       migrate: (persistedState) => {
-        const saved = persistedState as EditorUIState;
-        // Upgrade the old untouched layout without replacing custom panel sizes.
-        if (
-          saved?.leftPanelWidth === 350 &&
-          saved.rightPanelWidth === 350 &&
-          saved.timelineHeight === 220
-        ) {
-          return { ...saved, ...DEFAULT_EDITOR_LAYOUT };
-        }
-        return saved;
+        const saved = persistedState as Partial<EditorUIState> | undefined;
+        const oldLayout = saved?.leftPanelWidth === 350 && saved.rightPanelWidth === 350 && saved.timelineHeight === 220;
+        const oldTimeline = saved?.trackHeaderWidth === 180 && saved.trackHeight === MIN_TRACK_HEIGHT;
+        return {
+          ...saved,
+          ...(oldLayout && DEFAULT_EDITOR_LAYOUT),
+          ...(oldTimeline && {
+            trackHeaderWidth: DEFAULT_TRACK_HEADER_WIDTH,
+            trackHeight: DEFAULT_TRACK_HEIGHT,
+            showTrackHeaders: saved.workspaceLayout !== "cinema-preview",
+          }),
+        };
       },
       merge: (persistedState, currentState) => {
         const saved = persistedState as Partial<EditorUIState> | undefined;
@@ -279,7 +313,7 @@ export const useEditorUIStore = create<EditorUIState>()(
           ...currentState,
           ...saved,
           zoom: clampTimelineZoom(saved?.zoom ?? currentState.zoom),
-          trackHeight: clampTrackHeight(saved?.trackHeight),
+          trackHeight: clampTrackHeight(saved?.trackHeight ?? currentState.trackHeight),
         };
       },
       partialize: (state) => ({
@@ -300,6 +334,8 @@ export const useEditorUIStore = create<EditorUIState>()(
         selectedClipIds: state.selectedClipIds,
         clipInspectorSide: state.clipInspectorSide,
         isLeftSidebarCollapsed: state.isLeftSidebarCollapsed,
+        isInspectorCollapsed: state.isInspectorCollapsed,
+        workspaceLayout: state.workspaceLayout,
       }),
     },
   ),

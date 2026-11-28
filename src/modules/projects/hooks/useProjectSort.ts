@@ -7,7 +7,7 @@ export type SortOrder = "asc" | "desc";
 
 export const sortLabels: Record<SortOption, string> = {
   duration: "Duration",
-  modified: "Modified",
+  modified: "Recently modified",
   created: "Created",
   name: "Name",
 };
@@ -68,7 +68,7 @@ export function compareProjects(
 }
 
 export function useProjectSort(projects: Project[], searchQuery: string) {
-  const [sortBy, setSortBy] = useState<SortOption>("duration");
+  const [sortBy, setSortBy] = useState<SortOption>("modified");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
 

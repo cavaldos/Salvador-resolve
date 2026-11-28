@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Link } from "react-router";
-import { Clapperboard, MoreVertical, Check, Calendar } from "lucide-react";
+import { Clapperboard, MoreVertical, Check, Calendar, Layers, Play } from "lucide-react";
 import type { Project } from "../types";
 import {
   getProjectDuration,
@@ -86,11 +86,11 @@ export function ProjectCard({
       className={cn("group relative", menuOpen ? "z-30" : "z-0")}
       data-state={menuOpen ? "open" : "closed"}
     >
-      <div className="text-card-foreground rounded-2xl border bg-background border-none p-0">
+      <div className="rounded-2xl border border-studio-border bg-studio-panel p-2 transition-colors group-hover:border-cyan-500/55">
         <Link className="block" to={`/editor?project=${project.id}`}>
           <div
             className={cn(
-              "bg-muted relative aspect-video overflow-hidden rounded-2xl transition-all duration-200",
+              "bg-studio-bg relative aspect-video overflow-hidden rounded-xl transition-all duration-200",
               isSelected && "ring-2 ring-primary ring-offset-2 ring-offset-background",
             )}
           >
@@ -117,6 +117,17 @@ export function ProjectCard({
               )}
             </div>
 
+            <div className="pointer-events-none absolute top-2 left-2 flex gap-1.5 text-[10px] font-medium text-white [&>span]:flex [&>span]:items-center [&>span]:gap-1 [&>span]:rounded-md [&>span]:bg-black/75 [&>span]:px-1.5 [&>span]:py-0.5">
+              <span>{project.settings.aspectRatio}</span>
+              <span>{project.settings.fps} fps</span>
+              <span className="text-cyan-200"><Layers className="size-3" aria-hidden="true" />{project.tracks.length}</span>
+            </div>
+            {thumbUrl && (
+              <span className="pointer-events-none absolute top-1/2 left-1/2 grid size-10 -translate-1/2 place-items-center rounded-full bg-cyan-400/80 text-cyan-950">
+                <Play className="size-4 fill-current" aria-hidden="true" />
+              </span>
+            )}
+
             {/* Subtle primary tint when selected */}
             {isSelected && (
               <div className="absolute inset-0 bg-primary/10 pointer-events-none" />
@@ -128,7 +139,7 @@ export function ProjectCard({
           </div>
         </Link>
 
-        <div className="p-6 flex flex-col gap-2 px-0 pt-4">
+        <div className="flex flex-col gap-1.5 px-2 py-2.5">
           <div className="flex items-start justify-between gap-2">
             <Link className="block min-w-0 flex-1" to={`/editor?project=${project.id}`}>
               <h3 className="group-hover:text-foreground/90 line-clamp-2 text-sm leading-snug font-medium">
@@ -189,7 +200,7 @@ export function ProjectCard({
           onToggleSelect(project.id, e);
         }}
         className={cn(
-          "absolute left-1 top-1 z-10 flex size-10 cursor-pointer items-center justify-center rounded-full transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+          "absolute right-2 top-2 z-10 flex size-9 cursor-pointer items-center justify-center rounded-full transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
           isSelected
             ? "opacity-100"
             : "opacity-100 sm:pointer-events-none sm:opacity-0 sm:group-hover:pointer-events-auto sm:group-hover:opacity-100 sm:group-focus-within:pointer-events-auto sm:group-focus-within:opacity-100",

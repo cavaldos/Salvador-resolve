@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from "react";
-import { Check, ArrowDown } from "lucide-react";
+import { Check, ArrowDown, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 import {
   SortOption,
@@ -58,6 +58,7 @@ export function ProjectsSortControls({
 
     if (e.key === "Escape") {
       e.preventDefault();
+      e.stopPropagation();
       onSortMenuOpenChange(false);
       triggerRef.current?.focus();
     } else if (e.key === "ArrowDown") {
@@ -74,13 +75,13 @@ export function ProjectsSortControls({
   };
 
   return (
-    <div className="flex items-center gap-1.5" onKeyDown={handleKeyDown}>
+    <div className="flex h-8 items-center gap-1.5 rounded-lg border border-studio-border bg-studio-panel pr-1.5">
       {/* Sort Dropdown Button */}
-      <div className="relative" ref={sortMenuRef}>
+      <div className="relative" ref={sortMenuRef} onKeyDown={handleKeyDown}>
         <button
           ref={triggerRef}
           className={cn(
-            "inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap text-sm font-medium focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-transparent rounded-none p-0 pl-2 transition-colors duration-150",
+            "inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap text-sm font-medium focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 rounded-md py-1 pl-2 transition-colors duration-150",
             sortMenuOpen
               ? "text-foreground"
               : "text-muted-foreground hover:text-foreground",
@@ -92,7 +93,7 @@ export function ProjectsSortControls({
           data-state={sortMenuOpen ? "open" : "closed"}
           onClick={() => onSortMenuOpenChange(!sortMenuOpen)}
         >
-          {sortLabels[sortBy]}
+          {sortLabels[sortBy]} <ChevronsUpDown className="opacity-65" aria-hidden="true" />
         </button>
 
         {sortMenuOpen && (
@@ -100,7 +101,7 @@ export function ProjectsSortControls({
             role="menu"
             aria-orientation="vertical"
             aria-label="Sort options"
-            className="absolute -left-1 top-full mt-2 z-40 w-[184px] rounded-xl border border-border bg-card text-card-foreground p-1 shadow-2xl animate-in fade-in-50"
+            className="absolute right-0 top-full mt-2 z-40 w-[184px] rounded-xl border border-border bg-card text-card-foreground p-1 shadow-2xl animate-in fade-in-50"
           >
             {sortOptions.map((option) => {
               const isActive = sortBy === option;
@@ -118,7 +119,7 @@ export function ProjectsSortControls({
                       : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                   )}
                 >
-                  <span className="capitalize">{sortLabels[option]}</span>
+                  <span className="truncate">{sortLabels[option]}</span>
                   {isActive && (
                     <Check className="h-4 w-4 text-foreground stroke-[2]" />
                   )}

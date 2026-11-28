@@ -1,11 +1,12 @@
 import React from "react";
 import { Plus } from "lucide-react";
+import { timelineInsertDragProps, type TimelineInsertPosition } from "@/modules/editor/features/timeline/utils/timeline-insert-drag";
 import type { TextPreset } from "../data/text-presets";
 import { getTextPresetPreviewStyle } from "../data/text-presets";
 
 export interface TextPresetCardProps {
   preset: TextPreset;
-  onSelect: (preset: TextPreset) => void;
+  onSelect: (preset: TextPreset, position?: TimelineInsertPosition) => void;
 }
 
 export function TextPresetCard({ preset, onSelect }: TextPresetCardProps) {
@@ -14,6 +15,7 @@ export function TextPresetCard({ preset, onSelect }: TextPresetCardProps) {
       type="button"
       aria-label={`Add ${preset.name} to timeline`}
       onClick={() => onSelect(preset)}
+      {...timelineInsertDragProps("text", (position) => onSelect(preset, position))}
       title={`Add "${preset.name}" to timeline`}
       className="group relative flex min-w-0 h-28 flex-col gap-2 rounded-xl border border-studio-border bg-studio-panel-raised/40 hover:bg-studio-hover hover:border-studio-border-strong p-2 text-center cursor-pointer transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 shadow-xs overflow-hidden"
     >

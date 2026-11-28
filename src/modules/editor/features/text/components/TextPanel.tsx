@@ -3,6 +3,7 @@ import { nanoid } from "nanoid";
 import { useProjectStore } from "@/modules/projects";
 import { usePlaybackStore } from "@/modules/editor/store/usePlaybackStore";
 import { useEditorUIStore } from "@/modules/editor/store/useEditorUIStore";
+import { acceptsTimelineInsert, timelineInsertDragProps, type TimelineInsertPosition } from "@/modules/editor/features/timeline/utils/timeline-insert-drag";
 import type { TimelineClip } from "@/modules/editor/types";
 import { Search, Sparkles, Plus } from "lucide-react";
 import {
@@ -19,7 +20,7 @@ import { TextPresetCard } from "./TextPresetCard";
 export type { TextPreset } from "../data/text-presets";
 
 export function TextPanel() {
-  const { currentProject, addClip, addTrack } = useProjectStore();
+  const { currentProject, addClip } = useProjectStore();
   const { playhead } = usePlaybackStore();
   const { setSelectedClipIds } = useEditorUIStore();
 
@@ -39,18 +40,13 @@ export function TextPanel() {
     return matchesCategory && matchesSearch;
   });
 
-  const handleAddPreset = (preset: TextPreset) => {
-    if (!currentProject) return;
-
-    let textTrack = currentProject.tracks.find((t) => t.type === "text");
-    if (!textTrack) {
-      addTrack("text", "Text Track");
-      const updatedTracks =
-        useProjectStore.getState().currentProject?.tracks || [];
-      textTrack = updatedTracks.find((t) => t.type === "text");
-    }
-
-    if (!textTrack) return;
+  const handleAddPreset = (preset: TextPreset, position?: TimelineInsertPosition) => {
+    if (!currentProject || currentProject.id !== useProjectStore.getState().currentProject?.id) return;
+    const textTrack = currentProject.tracks.find((track) =>
+      position ? track.id === position.trackId : acceptsTimelineInsert(track, "text"),
+    );
+    if (position?.trackId && (!textTrack || !acceptsTimelineInsert(textTrack, "text"))) return;
+    const trackId = textTrack?.id ?? nanoid();
 
     const projW = currentProject.settings.width || 1920;
     const projH = currentProject.settings.height || 1080;
@@ -65,9 +61,9 @@ export function TextPanel() {
     const newClipId = nanoid();
     const newClip: TimelineClip = {
       id: newClipId,
-      trackId: textTrack.id,
+      trackId,
       type: "text",
-      timelineStart: playhead,
+      timelineStart: position?.time ?? playhead,
       timelineDuration: 5,
       sourceStart: 0,
       sourceDuration: 5,
@@ -101,7 +97,7 @@ export function TextPanel() {
       speed: 1,
     };
 
-    addClip(textTrack.id, newClip);
+    addClip(trackId, newClip, textTrack ? undefined : "text");
     setSelectedClipIds([newClipId]);
   };
 
@@ -122,6 +118,7 @@ export function TextPanel() {
       <button
         type="button"
         onClick={() => handleAddPreset(textPresets[0])}
+        {...timelineInsertDragProps("text", (position) => handleAddPreset(textPresets[0], position))}
         className="flex min-h-11 lg:min-h-9 shrink-0 items-center justify-center gap-2 rounded-lg bg-studio-fg px-3 text-xs font-semibold text-studio-bg cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2"
       >
         <Plus className="h-4 w-4" /> Add text

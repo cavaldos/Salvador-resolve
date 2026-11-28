@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import { ArrowLeft, LoaderCircle, Search, X } from "lucide-react";
 import { ElementMediaCard } from "./ElementMediaCard";
+import { timelineInsertDragProps, type TimelineInsertPosition } from "@/modules/editor/features/timeline/utils/timeline-insert-drag";
 import {
   elementPresets,
   fallbackEmojis,
@@ -28,7 +29,7 @@ interface ElementLibraryBrowserProps {
   section: ElementLibrarySection;
   addingId: string | null;
   onBack: () => void;
-  onAddElement: (preset: ElementPreset) => void;
+  onAddElement: (preset: ElementPreset, position?: TimelineInsertPosition) => void;
   onAddMedia: (item: LibraryMedia) => void;
   initialSearch?: string;
 }
@@ -284,6 +285,7 @@ export function ElementLibraryBrowser({
                 key={preset.id}
                 type="button"
                 onClick={() => onAddElement(preset)}
+                {...timelineInsertDragProps("overlay", (position) => onAddElement(preset, position))}
                 title={`Add ${preset.name}`}
                 aria-label={`Add ${preset.name} to timeline`}
                 className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-studio-border bg-studio-panel-raised transition-colors hover:border-studio-border-strong hover:bg-studio-hover focus-visible:outline-2 focus-visible:outline-brand"

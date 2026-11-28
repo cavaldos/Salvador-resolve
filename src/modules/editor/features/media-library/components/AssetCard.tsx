@@ -7,6 +7,7 @@ import { useProjectStore } from "@/modules/projects";
 import { useEditorUIStore } from "@/modules/editor/store/useEditorUIStore";
 import { ensureHighQualityThumbnail } from "../services/media-import-service";
 import { addMediaAssetToTimeline } from "../utils/add-media-asset-to-timeline";
+import { timelineInsertDragProps } from "@/modules/editor/features/timeline/utils/timeline-insert-drag";
 import {
   DropdownMenu,
   DropdownMenuItem,
@@ -161,11 +162,14 @@ export function AssetCard({
   const mediaTypeLabel =
     asset.type === "image" ? "Image" : asset.type === "video" ? "Video" : "Audio";
 
+  const dragProps = isRenaming ? undefined : timelineInsertDragProps(asset.type, (position) => addMediaAssetToTimeline(asset, position));
+
   if (viewMode === "list") {
     return (
       <div
         onClick={() => onPreview?.(asset)}
         onDoubleClick={handleAddToTimeline}
+        {...dragProps}
         className="group flex items-center justify-between rounded-lg border border-studio-border bg-studio-panel-raised/50 p-2 transition-all duration-200 hover:border-studio-border-strong hover:bg-studio-hover hover:-translate-y-0.5 select-none cursor-pointer lg:[content-visibility:auto] lg:[contain-intrinsic-size:0_58px]"
       >
         <div className="flex items-center gap-3 min-w-0">
@@ -257,6 +261,7 @@ export function AssetCard({
     <div
       onClick={() => onPreview?.(asset)}
       onDoubleClick={handleAddToTimeline}
+      {...dragProps}
       className="group relative flex flex-col rounded-xl border border-studio-border bg-studio-panel-raised/40 p-1.5 transition-all duration-300 hover:border-studio-border-strong hover:bg-studio-hover hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99] select-none cursor-pointer lg:[content-visibility:auto] lg:[contain-intrinsic-size:0_170px]"
     >
       {/* Thumbnail View Stage */}

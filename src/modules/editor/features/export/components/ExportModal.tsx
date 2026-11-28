@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useProjectStore } from "@/modules/projects";
 import {
   useExportStore,
+  EXPORT_FRAME_RATES,
+  type ExportFps,
   type ExportFormat,
   type ExportResolution,
   type ExportQuality,
@@ -14,8 +16,11 @@ import {
   getNativeMp4MimeType,
 } from "../services/export-preflight";
 import {
+  EXPORT_PRESETS,
   EXPORT_QUALITY_OPTIONS,
+  EXPORT_SHORT_EDGES,
   getExportDimensions,
+  parseExportBitrate,
 } from "../services/export-settings";
 import { Dialog } from "@/shared/components/ui/Dialog";
 import { Button } from "@/shared/components/ui/Button";
@@ -77,6 +82,15 @@ export function ExportModal() {
     resetExport,
   } = useExportStore();
 
+  const [bitrateInput, setBitrateInput] = useState("");
+  const videoBitrate = parseExportBitrate(bitrateInput);
+  const invalidBitrate = bitrateInput.trim() !== "" && videoBitrate === undefined;
+  const projectFps = EXPORT_FRAME_RATES.find((fps) => fps === currentProject?.settings.fps) ?? 30;
+  const preset = videoBitrate === undefined && !invalidBitrate && exportFps === projectFps
+    ? EXPORT_PRESETS.find(({ format, resolution, quality }) =>
+        format === exportFormat && resolution === exportResolution && quality === exportQuality,
+      )
+    : undefined;
   const savingRef = useRef(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
@@ -113,14 +127,10 @@ export function ExportModal() {
 
     if (!justOpened || !currentProject) return;
 
-    const projectFps = currentProject.settings.fps;
-    setExportFps(
-      projectFps === 24 || projectFps === 30 || projectFps === 60
-        ? projectFps
-        : 30,
-    );
+    setBitrateInput("");
+    setExportFps(projectFps);
     setExportResolution("project");
-  }, [currentProject, isExportModalOpen, setExportFps, setExportResolution]);
+  }, [currentProject, isExportModalOpen, projectFps, setExportFps, setExportResolution]);
 
   useEffect(() => {
     if (currentProject && filename === "video-export") {
@@ -131,7 +141,7 @@ export function ExportModal() {
     }
   }, [currentProject, filename, setFilename]);
   useEffect(() => {
-    if (!isExportModalOpen || !currentProject) {
+    if (!isExportModalOpen || !currentProject || invalidBitrate) {
       setPreflight(null);
       return;
     }
@@ -144,6 +154,7 @@ export function ExportModal() {
       resolution: exportResolution,
       fps: exportFps,
       quality: exportQuality,
+      videoBitrate,
     }).then((result) => {
       if (active) setPreflight(result);
     });
@@ -156,7 +167,9 @@ export function ExportModal() {
     exportFps,
     exportQuality,
     exportResolution,
+    invalidBitrate,
     isExportModalOpen,
+    videoBitrate,
   ]);
 
   const handleCancelExport = useCallback(() => {
@@ -194,9 +207,10 @@ export function ExportModal() {
       : null;
 
   const hasNativeMp4Export = Boolean(getNativeMp4MimeType());
+  const canSelectMp4 = capabilities.hasFFmpegSupport || hasNativeMp4Export;
   const handleStartExport = () => {
     if (
-      !preflight ||
+      invalidBitrate || !preflight ||
       preflight.isMobileBlocked ||
       !preflight.hasEnoughStorage ||
       Boolean(preflight.blockingReason)
@@ -218,6 +232,7 @@ export function ExportModal() {
         resolution: exportResolution,
         fps: exportFps,
         quality: exportQuality,
+        videoBitrate,
       },
       {
         onProgress: (curTime, totTime, pct, phase) => {
@@ -433,12 +448,37 @@ export function ExportModal() {
         {/* Phase View: Idle Form Controls */}
         {exportPhase === "idle" && (
           <div className="flex flex-col gap-4">
+            <div>
+              <label htmlFor="export-preset" className="mb-1.5 block text-xs font-medium text-studio-muted">Export Preset</label>
+              <Select
+                id="export-preset"
+                mobileTouchTargets
+                value={preset?.label ?? ""}
+                onChange={(event) => {
+                  const next = EXPORT_PRESETS.find(({ label }) => label === event.target.value);
+                  if (!next) return;
+                  setExportFormat(next.format);
+                  setExportResolution(next.resolution);
+                  setExportQuality(next.quality);
+                  setExportFps(projectFps);
+                  setBitrateInput("");
+                }}
+                className="h-10 rounded-xl bg-studio-panel-raised/50 text-sm max-lg:h-11"
+              >
+                <option value="" disabled>Custom settings</option>
+                {EXPORT_PRESETS.map(({ label, format }) => (
+                  <option key={label} value={label} disabled={format === "mp4" && !canSelectMp4}>{label}</option>
+                ))}
+              </Select>
+            </div>
+
             {/* Filename Input */}
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-studio-muted">
+              <label htmlFor="export-filename" className="mb-1.5 block text-xs font-medium text-studio-muted">
                 Export Filename
               </label>
               <Input
+                id="export-filename"
                 value={filename}
                 onChange={(e) => setFilename(e.target.value)}
                 placeholder="my-video"
@@ -449,10 +489,11 @@ export function ExportModal() {
             {/* Format & Resolution */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-studio-muted">
+                <label htmlFor="export-format" className="mb-1.5 block text-xs font-medium text-studio-muted">
                   Format
                 </label>
                 <Select
+                  id="export-format"
                   mobileTouchTargets
                   value={exportFormat}
                   onChange={(e) =>
@@ -463,9 +504,7 @@ export function ExportModal() {
                   <option value="webm">WebM</option>
                   <option
                     value="mp4"
-                    disabled={
-                      !capabilities.hasFFmpegSupport && !hasNativeMp4Export
-                    }
+                    disabled={!canSelectMp4}
                   >
                     {hasNativeMp4Export
                       ? "MP4 (Native)"
@@ -477,10 +516,11 @@ export function ExportModal() {
               </div>
 
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-studio-muted">
+                <label htmlFor="export-resolution" className="mb-1.5 block text-xs font-medium text-studio-muted">
                   Resolution
                 </label>
                 <Select
+                  id="export-resolution"
                   mobileTouchTargets
                   mobileValueLabel={
                     exportResolution === "project"
@@ -493,19 +533,10 @@ export function ExportModal() {
                   }
                   className="h-10 rounded-xl border-studio-border bg-studio-panel-raised/50 text-sm max-lg:h-11"
                 >
-                  <option value="project">
-                    Original (
-                    {getExportDimensions(currentProject, "project").width} ×{" "}
-                    {getExportDimensions(currentProject, "project").height})
-                  </option>
-                  <option value="720p">
-                    720p ({getExportDimensions(currentProject, "720p").width} ×{" "}
-                    {getExportDimensions(currentProject, "720p").height})
-                  </option>
-                  <option value="1080p">
-                    1080p ({getExportDimensions(currentProject, "1080p").width}{" "}
-                    × {getExportDimensions(currentProject, "1080p").height})
-                  </option>
+                  {(["project", ...Object.keys(EXPORT_SHORT_EDGES)] as ExportResolution[]).map((resolution) => {
+                    const { width, height } = getExportDimensions(currentProject, resolution);
+                    return <option key={resolution} value={resolution}>{resolution === "project" ? "Original" : resolution} ({width} × {height})</option>;
+                  })}
                 </Select>
               </div>
             </div>
@@ -513,28 +544,26 @@ export function ExportModal() {
             {/* Frame Rate & Quality */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-studio-muted">
+                <label htmlFor="export-fps" className="mb-1.5 block text-xs font-medium text-studio-muted">
                   Frame Rate
                 </label>
                 <Select
+                  id="export-fps"
                   mobileTouchTargets
                   value={String(exportFps)}
-                  onChange={(e) =>
-                    setExportFps(parseInt(e.target.value, 10) as 24 | 30 | 60)
-                  }
+                  onChange={(e) => setExportFps(Number(e.target.value) as ExportFps)}
                   className="h-10 rounded-xl border-studio-border bg-studio-panel-raised/50 text-sm max-lg:h-11"
                 >
-                  <option value="24">24</option>
-                  <option value="30">30</option>
-                  <option value="60">60</option>
+                  {EXPORT_FRAME_RATES.map((fps) => <option key={fps} value={fps}>{fps} fps</option>)}
                 </Select>
               </div>
 
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-studio-muted">
+                <label htmlFor="export-quality" className="mb-1.5 block text-xs font-medium text-studio-muted">
                   Quality
                 </label>
                 <Select
+                  id="export-quality"
                   mobileTouchTargets
                   value={exportQuality}
                   onChange={(e) =>
@@ -553,8 +582,24 @@ export function ExportModal() {
               </div>
             </div>
             <p className="-mt-2 text-[11px] text-studio-muted">
-              {EXPORT_QUALITY_OPTIONS[exportQuality].description}
+              {videoBitrate ? "Video uses the manual bitrate below. Quality still sets audio bitrate." : EXPORT_QUALITY_OPTIONS[exportQuality].description}
             </p>
+            <div>
+              <label htmlFor="export-bitrate" className="mb-1.5 block text-xs font-medium text-studio-muted">Video bitrate (Mbps)</label>
+              <Input
+                id="export-bitrate"
+                inputMode="decimal"
+                value={bitrateInput}
+                placeholder={preflight && !videoBitrate ? `Auto · ${Number((preflight.videoBitrate / 1_000_000).toFixed(2))} Mbps` : "Auto"}
+                onChange={(event) => setBitrateInput(event.target.value)}
+                aria-invalid={invalidBitrate}
+                aria-describedby="export-bitrate-help"
+                className="h-10 rounded-xl bg-studio-panel-raised/50 text-sm max-lg:h-11"
+              />
+              <p id="export-bitrate-help" className={invalidBitrate ? "mt-1 text-xs text-destructive" : "mt-1 text-xs text-studio-muted"}>
+                {invalidBitrate ? "Enter a number from 0.1 to 200 Mbps." : "Leave blank to choose the bitrate automatically."}
+              </p>
+            </div>
             {preflight && preflight.frameEncoding && (
               <p className="text-xs leading-relaxed text-emerald-400 flex items-center gap-1.5">
                 <CheckCircle className="h-3.5 w-3.5 shrink-0" />
@@ -564,10 +609,10 @@ export function ExportModal() {
                 </span>
               </p>
             )}
-            {preflight && !preflight.frameEncoding && exportFps === 60 && (
+            {preflight && !preflight.frameEncoding && exportFps >= 50 && (
               <p className="text-xs leading-relaxed text-studio-muted">
                 This export requires real-time capture. Its frame rate depends
-                on your device and may be lower than 60 fps.
+                on your device and may be lower than {exportFps} fps.
               </p>
             )}
 
@@ -591,6 +636,7 @@ export function ExportModal() {
                       <span>{formatBytes(preflight.estimatedBytes)}</span>
                       <span className="text-[10px] font-medium tracking-wide text-studio-muted">
                         {preflight.extension.toUpperCase()}
+                        {preflight.frameEncoding && ` · ${preflight.frameEncoding.videoCodec === "avc" ? "H.264" : preflight.frameEncoding.videoCodec.toUpperCase()}`}
                       </span>
                     </dd>
                   </div>
@@ -697,7 +743,7 @@ export function ExportModal() {
                 variant="primary"
                 onClick={handleStartExport}
                 disabled={
-                  !preflight ||
+                  invalidBitrate || !preflight ||
                   preflight.isMobileBlocked ||
                   !preflight.hasEnoughStorage ||
                   Boolean(preflight.blockingReason)

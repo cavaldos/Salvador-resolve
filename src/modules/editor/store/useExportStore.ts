@@ -3,7 +3,9 @@ import { immer } from "zustand/middleware/immer";
 
 export type ExportFormat = "webm" | "mp4";
 export type ExportResolution =
-  "1280x720" | "1920x1080" | "720p" | "1080p" | "project";
+  "1280x720" | "1920x1080" | "480p" | "720p" | "1080p" | "1440p" | "4K" | "project";
+export const EXPORT_FRAME_RATES = [24, 25, 30, 50, 60] as const;
+export type ExportFps = (typeof EXPORT_FRAME_RATES)[number];
 export type ExportQuality = "draft" | "standard" | "high";
 export type ExportPhase =
   "idle" | "rendering" | "converting" | "completed" | "error" | "cancelled";
@@ -21,7 +23,7 @@ interface ExportState {
   filename: string;
   exportFormat: ExportFormat;
   exportResolution: ExportResolution;
-  exportFps: 24 | 30 | 60;
+  exportFps: ExportFps;
   exportQuality: ExportQuality;
   exportPhase: ExportPhase;
   exportProgress: number; // 0 to 100
@@ -39,7 +41,7 @@ interface ExportState {
   setFilename: (filename: string) => void;
   setExportFormat: (format: ExportFormat) => void;
   setExportResolution: (resolution: ExportResolution) => void;
-  setExportFps: (fps: 24 | 30 | 60) => void;
+  setExportFps: (fps: ExportFps) => void;
   setExportQuality: (quality: ExportQuality) => void;
   setExportPhase: (phase: ExportPhase) => void;
   setExportProgress: (progress: number) => void;
@@ -168,10 +170,7 @@ export const useExportStore = create<ExportState>()(
         "captureStream" in HTMLCanvasElement.prototype;
       const hasMediaRecorder = typeof MediaRecorder !== "undefined";
       const hasWebAudio =
-        typeof AudioContext !== "undefined" ||
-        typeof (
-          window as unknown as { webkitAudioContext: typeof AudioContext }
-        ).webkitAudioContext !== "undefined";
+        typeof AudioContext !== "undefined" || "webkitAudioContext" in window;
 
       const webmCodecs = [
         "video/webm;codecs=vp9,opus",

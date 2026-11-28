@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import type { TimelineClip, Track } from "@/modules/editor/types";
+import type { MediaAsset } from "@/modules/projects/types";
+import { TimelineFilmstrip } from "./TimelineFilmstrip";
 import { useEditorUIStore } from "@/modules/editor/store/useEditorUIStore";
 import { useProjectStore } from "@/modules/projects";
 import { db } from "@/modules/core/db/database";
@@ -14,6 +16,9 @@ import { WaveformCanvas } from "@/modules/editor/features/audio/components/Wavef
 import { detachAudioFromVideo } from "@/modules/editor/features/audio/utils/detachAudio";
 import { resolveMediaAssetBlob } from "@/modules/core/storage/media-source-service";
 import { extractAudioPeaks } from "@/modules/editor/features/audio/utils/audio-peaks";
+import { getVideoWaveform } from "@/modules/editor/features/audio/utils/video-waveform";
+import { getTimelineGapBefore } from "@/modules/editor/utils/timeline-utils";
+import { formatTimecode } from "../utils/ruler-utils";
 import {
   FileVideo,
   Image as ImageIcon,
@@ -68,6 +73,7 @@ export function TimelineClipItem({
   const { splitClip, duplicateClips, deleteClips, updateClip } =
     useProjectStore();
   const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+  const [videoAsset, setVideoAsset] = useState<MediaAsset | null>(null);
   const [waveformPeaks, setWaveformPeaks] = useState<number[] | null>(null);
   const [assetDuration, setAssetDuration] = useState<number>(10);
   const [assetAspectRatio, setAssetAspectRatio] = useState<number>(16 / 9);
@@ -77,14 +83,16 @@ export function TimelineClipItem({
   const widthPx = Math.max(12, clip.timelineDuration * zoom);
   const leftPx = 16 + clip.timelineStart * zoom;
   const durationLabel = `${clip.timelineDuration.toFixed(1)}s`;
+  const fps = usePlaybackStore((state) => state.fps);
   // Only display seconds duration when clip has enough width to prevent overlapping labels
   const showDuration = widthPx >= 75;
-  const showName = widthPx >= 96;
   const showStatusDetails = widthPx >= 150;
 
   const frameHeight = trackHeight - 8;
-  const frameWidth = Math.max(30, Math.round(frameHeight * assetAspectRatio));
-  const frameCount = Math.max(1, Math.ceil(widthPx / frameWidth));
+  const hasVideoWaveform = clip.type === "video" && Boolean(waveformPeaks);
+  const filmstripHeight = frameHeight - 18 - (hasVideoWaveform ? 12 : 0);
+  const frameWidth = Math.min(98, Math.max(54, Math.round(filmstripHeight * assetAspectRatio)));
+  const sourceDuration = clip.timelineDuration * (clip.speed || 1);
 
   useEffect(() => {
     let isMounted = true;
@@ -102,15 +110,19 @@ export function TimelineClipItem({
           if (asset.width && asset.height && asset.height > 0) {
             setAssetAspectRatio(asset.width / asset.height);
           }
-          if (asset.waveformPeaks && asset.waveformPeaks.length > 0) {
+          if (asset.type !== "video" && asset.waveformPeaks && asset.waveformPeaks.length > 0) {
             setWaveformPeaks(asset.waveformPeaks);
-          } else if (asset.waveformStatus === "deferred") {
+          } else if (asset.type !== "video" && asset.waveformStatus === "deferred") {
             setWaveformPeaks(Array.from({ length: 80 }, () => 0.18));
           }
         }
 
-        // Dynamically upgrade low-resolution or flat/uniform waveform peaks to high-detail RMS dynamics
-        if (clip.type === "audio") {
+        if (asset.type === "video") {
+          if (isMounted) setVideoAsset(asset);
+          void getVideoWaveform(asset).then((peaks) => {
+            if (isMounted) setWaveformPeaks(peaks.length ? peaks : null);
+          });
+        } else if (clip.type === "audio") {
           const existingPeaks = asset.waveformPeaks;
           const isOldResolution = !existingPeaks || existingPeaks.length < 800;
           const isQuietOrFlat =
@@ -156,7 +168,9 @@ export function TimelineClipItem({
       }
     }
 
-    checkAsset();
+    void checkAsset().catch(() => {
+      if (isMounted) setIsMissingAsset(true);
+    });
 
     return () => {
       isMounted = false;
@@ -174,22 +188,6 @@ export function TimelineClipItem({
     });
   };
 
-  const getClipStyling = () => {
-    if (clip.type === "audio") {
-      return {
-        bg: "bg-zinc-200/70 dark:bg-studio-panel text-studio-fg",
-        border: isSelected
-          ? "border-2 border-studio-fg ring-1 ring-studio-fg/30 shadow-md"
-          : "border-2 border-studio-border hover:border-studio-border-strong",
-      };
-    }
-    return {
-      bg: "bg-studio-panel text-studio-fg",
-      border: isSelected
-        ? "border-2 border-studio-fg ring-1 ring-studio-fg/30 shadow-md"
-        : "border-2 border-studio-border hover:border-studio-border-strong",
-    };
-  };
 
   const renderIcon = () => {
     switch (clip.type) {
@@ -378,10 +376,23 @@ export function TimelineClipItem({
             id: "detach-audio",
             label: "Detach audio",
             icon: <Unlink className="h-3.5 w-3.5 text-white/90" />,
-            onClick: () => detachAudioFromVideo(clip.id),
+            disabled: track.locked || Boolean(clip.audio?.muted),
+            onClick: () => void detachAudioFromVideo(clip.id),
           },
         ]
       : []),
+    {
+      id: "close-gap",
+      label: "Close gap before clip",
+      disabled: !getTimelineGapBefore(track, clip),
+      onClick: () => useProjectStore.getState().closeGapBeforeClip(clip.id),
+    },
+    {
+      id: "ripple-delete",
+      label: "Ripple delete on this track",
+      disabled: track.locked,
+      onClick: () => deleteClips([clip.id], { ripple: true }),
+    },
     { id: "div-3", label: "", isDivider: true, onClick: () => {} },
     {
       id: "delete",
@@ -392,8 +403,6 @@ export function TimelineClipItem({
       onClick: () => deleteClips([clip.id]),
     },
   ];
-
-  const clipStyling = getClipStyling();
 
   return (
     <>
@@ -410,9 +419,11 @@ export function TimelineClipItem({
         onPointerDown={handlePointerDown}
         onContextMenu={handleContextMenu}
         className={cn(
-          "group relative flex touch-none items-center justify-between rounded-lg select-none overflow-hidden cursor-grab active:cursor-grabbing transition-[opacity,box-shadow,border-color,background-color]",
-          clipStyling.bg,
-          clipStyling.border,
+          "group relative flex touch-none items-center justify-between overflow-hidden rounded-[5px] border text-studio-fg select-none cursor-grab active:cursor-grabbing transition-[opacity,box-shadow,border-color,background-color]",
+          clip.type === "video" || clip.type === "image" ? "bg-teal-950" : "bg-studio-panel-raised",
+          isSelected
+            ? "border-studio-fg ring-1 ring-studio-fg shadow-md"
+            : "border-studio-border hover:border-studio-border-strong",
           isDragging && "opacity-40 ring-2 ring-studio-fg/60",
           track.locked && "opacity-60 cursor-not-allowed",
         )}
@@ -429,56 +440,30 @@ export function TimelineClipItem({
           />
         )}
 
-        {/* Clip Background Video Thumbnail Filmstrip */}
-        {thumbUrl && clip.type === "video" && (
-          <div className="absolute inset-0 z-0 flex overflow-hidden pointer-events-none select-none">
-            {Array.from({ length: frameCount }).map((_, i) => (
-              <div
-                key={i}
-                className="relative shrink-0 border-r border-black/50 overflow-hidden"
-                style={{ width: `${frameWidth}px`, height: "100%" }}
-              >
-                <img
-                  src={thumbUrl}
-                  alt=""
-                  className="h-full w-full object-cover pointer-events-none select-none"
-                  draggable={false}
-                />
-              </div>
-            ))}
-          </div>
+        {(clip.type === "video" || clip.type === "image") && (
+          <TimelineFilmstrip
+            videoAsset={clip.type === "video" && videoAsset?.id === clip.assetId ? videoAsset : null}
+            poster={thumbUrl}
+            sourceStart={clip.sourceStart}
+            sourceDuration={sourceDuration}
+            width={widthPx}
+            tileWidth={frameWidth}
+            hasWaveform={hasVideoWaveform}
+          />
         )}
 
-        {/* Clip Background Image Thumbnail Filmstrip */}
-        {thumbUrl && clip.type === "image" && (
-          <div className="absolute inset-0 z-0 flex overflow-hidden pointer-events-none select-none">
-            {Array.from({ length: frameCount }).map((_, i) => (
-              <div
-                key={i}
-                className="relative shrink-0 border-r border-black/50 overflow-hidden"
-                style={{ width: `${frameWidth}px`, height: "100%" }}
-              >
-                <img
-                  src={thumbUrl}
-                  alt=""
-                  className="h-full w-full object-cover pointer-events-none select-none"
-                  draggable={false}
-                />
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Waveform Canvas Layer for Audio clips only */}
-        {clip.type === "audio" && waveformPeaks && (
-          <div className="absolute inset-0 z-0 px-2 py-1 pointer-events-none">
+        {(clip.type === "audio" || clip.type === "video") && waveformPeaks && (
+          <div
+            data-waveform={clip.type}
+            className={cn("pointer-events-none absolute inset-x-0 bottom-0", clip.type === "video" ? "z-[1] h-3 border-t border-teal-700/50 bg-teal-200/60 dark:bg-teal-950" : "top-0 z-0 px-2 py-1")}
+          >
             <WaveformCanvas
               peaks={waveformPeaks}
               sourceStart={clip.sourceStart}
-              sourceDuration={clip.timelineDuration * (clip.speed || 1)}
+              sourceDuration={sourceDuration}
               totalAssetDuration={assetDuration}
               isMuted={isAudioMuted}
-              width={Math.max(10, widthPx - 16)}
+              width={Math.max(10, widthPx - (clip.type === "video" ? 2 : 16))}
             />
           </div>
         )}
@@ -510,11 +495,16 @@ export function TimelineClipItem({
 
         {/* Video, Image, Overlay Clip Content Label */}
         {clip.type !== "text" && clip.type !== "audio" && widthPx >= 28 && (
-          <div className="z-10 absolute top-1 left-1.5 flex min-w-0 max-w-[calc(100%-12px)] items-center gap-1 pointer-events-none select-none leading-none">
+          <div className="z-10 absolute inset-x-0 top-0 flex h-[18px] min-w-0 items-center gap-1.5 bg-[#204f53] px-1.5 pointer-events-none select-none leading-none">
             {clip.type !== "video" && clip.type !== "image" && renderIcon()}
-            <span className="truncate text-[10px] font-medium text-white/95 leading-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.95)] tracking-tight">
+            <span className="truncate text-[11px] font-medium leading-none text-white">
               {clip.name}
             </span>
+            {showDuration && (
+              <span className="shrink-0 rounded-sm bg-white/10 px-1 font-mono text-[10px] tabular-nums text-white/90">
+                {formatTimecode(clip.timelineDuration, fps, true)}
+              </span>
+            )}
             {showStatusDetails && isAudioMuted && clip.type === "video" && (
               <span title="Audio muted" className="drop-shadow-[0_1px_2px_rgba(0,0,0,0.95)]">
                 <VolumeX className="h-2.5 w-2.5 shrink-0 text-white/80" />

@@ -1,7 +1,7 @@
 use std::{
     borrow::Cow,
     ffi::OsStr,
-    io::{self, Write},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     time::{Duration, Instant},
@@ -21,6 +21,7 @@ const MAX_EXPORT: u64 = 8 * 1024 * 1024 * 1024;
 enum Container {
     Mp4,
     Webm,
+    Png,
 }
 
 impl Container {
@@ -30,6 +31,8 @@ impl Container {
             Some(Self::Mp4)
         } else if ext.eq_ignore_ascii_case("webm") {
             Some(Self::Webm)
+        } else if ext.eq_ignore_ascii_case("png") {
+            Some(Self::Png)
         } else {
             None
         }
@@ -39,6 +42,7 @@ impl Container {
         match self {
             Self::Mp4 => "mp4",
             Self::Webm => "webm",
+            Self::Png => "png",
         }
     }
 }
@@ -81,7 +85,17 @@ impl ExportJob {
         if self.written != self.expected {
             return Err(io::Error::other("The export did not finish transferring."));
         }
-        let (file, status) = match ffmpeg {
+        if self.container == Container::Png {
+            let mut signature = [0; 8];
+            self.staging.reopen()?.read_exact(&mut signature)?;
+            if signature != *b"\x89PNG\r\n\x1a\n" {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Invalid PNG signature.",
+                ));
+            }
+        }
+        let (file, status) = match ffmpeg.filter(|_| self.container != Container::Png) {
             Some(bin) => match self.remux(bin) {
                 Ok(remuxed) => (remuxed, "remuxed"),
                 Err(_) => (self.staging, "remux-failed"),
@@ -110,6 +124,7 @@ impl ExportJob {
                 command.args(["-f", "mov", "-enable_drefs", "0", "-use_absolute_path", "0"])
             }
             Container::Webm => command.args(["-f", "matroska"]),
+            Container::Png => return Err(io::Error::other("Only video can be remuxed.")),
         };
         command
             .arg("-i")
@@ -182,7 +197,8 @@ pub async fn begin_export_save(
     if name.len() > 255 || name.contains(['/', '\\', ':']) || name.chars().any(char::is_control) {
         return Err("Enter a valid export file name.".into());
     }
-    let container = Container::for_name(&name).ok_or("Only MP4 and WebM exports can be saved.")?;
+    let container =
+        Container::for_name(&name).ok_or("Only MP4, WebM and PNG exports can be saved.")?;
     let mut slot = state
         .try_lock()
         .map_err(|_| "An export save is already in progress.")?;
@@ -355,6 +371,25 @@ mod tests {
         assert_eq!(job.finish(None)?, "original");
         assert_eq!(fs::read(&path)?, b"abcd");
         assert_eq!(fs::read_dir(dir.path())?.count(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn png_exports_bypass_remux_and_reject_wrong_signatures() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("frame.png");
+        let png = b"\x89PNG\r\n\x1a\nthumbnail";
+        let container = Container::for_name("frame.PNG").unwrap();
+        let mut job = ExportJob::new(path.clone(), container, png.len() as u64)?;
+        job.write(png)?;
+        assert_eq!(job.finish(Some(Path::new("unused-ffmpeg")))?, "original");
+        let mut invalid = ExportJob::new(path.clone(), container, 9)?;
+        invalid.write(b"not a png")?;
+        assert_eq!(
+            invalid.finish(None).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(fs::read(path)?, png);
         Ok(())
     }
 

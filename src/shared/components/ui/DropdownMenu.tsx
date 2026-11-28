@@ -19,6 +19,7 @@ export interface DropdownMenuProps {
   triggerClassName?: string;
   matchTriggerWidth?: boolean;
   animated?: boolean;
+  keyboardNavigation?: boolean;
   onOpenChange?: (open: boolean) => void;
 }
 
@@ -30,12 +31,15 @@ export function DropdownMenu({
   triggerClassName,
   matchTriggerWidth = false,
   animated = true,
+  keyboardNavigation = false,
   onOpenChange,
 }: DropdownMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [coords, setCoords] = useState<{ top: number; left: number; width?: number }>({ top: 0, left: 0 });
   const triggerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const focusTrigger = () => triggerRef.current?.querySelector('button')?.focus();
+  const menuItems = () => Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('button[role^="menuitem"]:not(:disabled)') ?? []);
 
   const notifyOpenChange = useEffectEvent((open: boolean) => {
     onOpenChange?.(open);
@@ -88,8 +92,10 @@ export function DropdownMenu({
 
   // Measure before paint so the menu opens directly at its final position.
   useLayoutEffect(() => {
-    if (isOpen) updateCoords();
-  }, [isOpen, updateCoords]);
+    if (!isOpen) return;
+    updateCoords();
+    if (keyboardNavigation) (menuItems()[0] ?? menuRef.current)?.focus();
+  }, [isOpen, keyboardNavigation, updateCoords]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -105,7 +111,9 @@ export function DropdownMenu({
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsOpen(false);
+      if (e.key !== 'Escape') return;
+      if (keyboardNavigation && menuRef.current?.contains(document.activeElement)) focusTrigger();
+      setIsOpen(false);
     };
 
     const handleScroll = () => {
@@ -125,7 +133,23 @@ export function DropdownMenu({
       window.removeEventListener('scroll', handleScroll, true);
       window.removeEventListener('resize', handleScroll);
     };
-  }, [isOpen, updateCoords]);
+  }, [isOpen, keyboardNavigation, updateCoords]);
+
+  const handleMenuKey = (event: React.KeyboardEvent) => {
+    if (event.key === 'Tab') {
+      focusTrigger();
+      close();
+      return;
+    }
+    const items = menuItems();
+    if (!items.length || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    const index = items.indexOf(document.activeElement as HTMLButtonElement);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 :
+      (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    event.preventDefault();
+    event.stopPropagation();
+    items[next].focus();
+  };
 
   return (
     <DropdownContext.Provider value={{ close }}>
@@ -138,7 +162,12 @@ export function DropdownMenu({
           <div
             ref={menuRef}
             role="menu"
-            onClick={close}
+            tabIndex={keyboardNavigation ? -1 : undefined}
+            onKeyDown={keyboardNavigation ? handleMenuKey : undefined}
+            onClick={() => {
+              if (keyboardNavigation && menuRef.current?.contains(document.activeElement)) focusTrigger();
+              close();
+            }}
             style={{
               position: 'fixed',
               top: `${coords.top}px`,

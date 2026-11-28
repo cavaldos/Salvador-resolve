@@ -1,4 +1,3 @@
-import React from "react";
 import {
   Scissors,
   ArrowLeftToLine,
@@ -24,6 +23,14 @@ import {
   Check,
   Minus,
   Gauge,
+  Magnet,
+  MoreHorizontal,
+  Unlink,
+  Undo2,
+  Redo2,
+  ZoomIn,
+  ZoomOut,
+  ScanLine,
 } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -34,10 +41,10 @@ import {
   MAX_TRACK_HEIGHT,
 } from "@/modules/editor/store/useEditorUIStore";
 import { usePlaybackStore } from "@/modules/editor/store/usePlaybackStore";
+import { historyManager } from "@/modules/editor/store/useHistoryStore";
 import { playbackClock } from "@/modules/editor/features/playback/services/playback-clock";
 import { useProjectStore } from "@/modules/projects";
 import { IconButton } from "@/shared/components/ui/IconButton";
-import { Button } from "@/shared/components/ui/Button";
 import { Slider } from "@/shared/components/ui/Slider";
 import { Tooltip } from "@/shared/components/ui/Tooltip";
 import {
@@ -45,6 +52,8 @@ import {
   DropdownMenuItem,
 } from "@/shared/components/ui/DropdownMenu";
 import { formatTimecode } from "../utils/ruler-utils";
+import { getTimelineGapBefore } from "@/modules/editor/utils/timeline-utils";
+import { detachAudioFromVideo } from "@/modules/editor/features/audio/utils/detachAudio";
 import {
   MAX_TIMELINE_ZOOM,
   getTimelineZoomFactor,
@@ -96,14 +105,12 @@ export function TimelineToolbar({
     setZoom,
     trackHeight,
     setTrackHeight,
-    activeTool,
-    setActiveTool,
     zoomMode,
     setZoomMode,
-    stageScale,
-    triggerResetView,
-    showTrackHeaders: savedShowTrackHeaders = false,
+    showTrackHeaders: savedShowTrackHeaders,
     toggleTrackHeaders,
+    snappingEnabled,
+    setSnappingEnabled,
     isFullscreen: isVideoFullscreen,
   } = useEditorUIStore();
 
@@ -120,7 +127,7 @@ export function TimelineToolbar({
     stepBackward,
   } = usePlaybackStore();
 
-  const { currentProject, splitClip, trimClip, duplicateClips, deleteClips, addTrack } =
+  const { currentProject, splitClip, trimClip, duplicateClips, deleteClips, addTrack, closeGapBeforeClip, undo, redo } =
     useProjectStore();
 
   const projectSettings = currentProject?.settings || {
@@ -143,6 +150,10 @@ export function TimelineToolbar({
     .filter((c) => selectedClipIds.includes(c.id));
 
   const selectedClip = selectedClips.length === 1 ? selectedClips[0] : null;
+  const selectedTrack = currentProject?.tracks.find((track) => track.id === selectedClip?.trackId);
+  const editableSelection = selectedClips.some((clip) =>
+    currentProject?.tracks.some((track) => track.id === clip.trackId && !track.locked),
+  );
 
   const selectedAsset = useLiveQuery(
     async () => {
@@ -239,9 +250,9 @@ export function TimelineToolbar({
     }
   };
 
-  const handleDelete = () => {
+  const handleDelete = (ripple = false) => {
     if (selectedClipIds.length > 0) {
-      deleteClips(selectedClipIds);
+      deleteClips(selectedClipIds, { ripple });
       useEditorUIStore.getState().clearSelection();
     }
   };
@@ -251,9 +262,16 @@ export function TimelineToolbar({
   };
 
   return (
-    <div className="relative flex h-11 w-full shrink-0 items-center justify-between gap-3 overflow-hidden border-b border-studio-border bg-transparent px-2 text-xs select-none">
+    <div className="relative flex min-h-10 w-full shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-studio-border bg-studio-panel-raised px-2 py-1 text-xs select-none">
       {/* Left: Timeline Edit Actions */}
       <div className="z-10 flex shrink-0 items-center gap-0.5">
+        <IconButton label="Undo" size="sm" variant="ghost" disabled={!historyManager.canUndo()} onClick={undo}>
+          <Undo2 className="size-4" />
+        </IconButton>
+        <IconButton label="Redo" size="sm" variant="ghost" disabled={!historyManager.canRedo()} onClick={redo}>
+          <Redo2 className="size-4" />
+        </IconButton>
+        <div className="mx-1 h-4 w-px bg-studio-border" />
         <IconButton
           label="Split"
           shortcut="S"
@@ -312,23 +330,51 @@ export function TimelineToolbar({
           size="sm"
           variant="ghost"
           disabled={!hasSelection}
-          onClick={handleDelete}
+          onClick={() => handleDelete()}
           tooltipPosition="top"
           className="cursor-pointer"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </IconButton>
 
-        <div className="mx-1 h-3.5 w-px bg-studio-border" />
-
+        <DropdownMenu
+          align="left"
+          keyboardNavigation
+          trigger={(open) => (
+            <IconButton label="More timeline editing tools" size="sm" variant="ghost" aria-haspopup="menu" aria-expanded={open}>
+              <MoreHorizontal className="size-4" />
+            </IconButton>
+          )}
+        >
+          <DropdownMenuItem disabled={!editableSelection} onClick={() => handleDelete(true)}>
+            <Trash2 className="size-4" /> Ripple delete on selected tracks
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={!selectedClip || !selectedTrack || !getTimelineGapBefore(selectedTrack, selectedClip)}
+            onClick={() => selectedClip && closeGapBeforeClip(selectedClip.id)}
+          >
+            <ArrowLeftToLine className="size-4" /> Close gap before clip
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={selectedClip?.type !== "video" || !selectedClip.assetId || selectedClip.audio?.muted || selectedTrack?.locked}
+            onClick={() => selectedClip && void detachAudioFromVideo(selectedClip.id)}
+          >
+            <Unlink className="size-4" /> Detach audio
+          </DropdownMenuItem>
+        </DropdownMenu>
+        <div className="mx-1 h-4 w-px bg-studio-border" />
         <DropdownMenu
           align="left"
           className="min-w-0 w-[136px] p-1 rounded-xl border border-studio-border bg-studio-panel-raised/95 backdrop-blur-md shadow-2xl animate-in fade-in-80 zoom-in-95 duration-150"
           trigger={(isOpen) => (
             <button
               type="button"
+              aria-label="Add track"
+              aria-haspopup="menu"
+              aria-expanded={isOpen}
+              title="Add track"
               className={cn(
-                "group flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors cursor-pointer select-none",
+                "group flex h-7 items-center gap-0.5 rounded-md px-1 text-xs font-medium transition-colors cursor-pointer select-none",
                 isOpen
                   ? "bg-studio-hover text-studio-fg shadow-xs"
                   : "text-studio-fg/90 hover:bg-studio-hover hover:text-studio-fg"
@@ -342,7 +388,6 @@ export function TimelineToolbar({
                     : "text-studio-muted group-hover:text-studio-fg"
                 )}
               />
-              <span>Add Track</span>
               <ChevronDown
                 className={cn(
                   "h-3 w-3 text-studio-muted transition-transform duration-150 ml-0.5",
@@ -385,33 +430,10 @@ export function TimelineToolbar({
           </DropdownMenuItem>
         </DropdownMenu>
 
-        <div className="mx-0.5 h-3.5 w-px bg-studio-border" />
-
-        <IconButton
-          label={showTrackHeaders ? "Hide tracks" : "Show tracks"}
-          size="sm"
-          variant="ghost"
-          onClick={toggleTrackHeaders}
-          disabled={!hasTracks}
-          tooltipPosition="top"
-          className={cn(
-            "cursor-pointer h-7 w-7 transition-colors",
-            !showTrackHeaders
-              ? "text-studio-muted hover:text-studio-fg hover:bg-studio-panel-raised"
-              : "text-studio-fg/90 hover:bg-studio-panel-raised",
-          )}
-        >
-          <Layers
-            className={cn(
-              "h-3.5 w-3.5 transition-opacity",
-              !showTrackHeaders && "opacity-40",
-            )}
-          />
-        </IconButton>
       </div>
 
-      {/* Center: Stage Controls + Transport Playback Controls (Always Centered) */}
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 flex shrink-0 items-center gap-2">
+      {/* Center: Stage Controls + Transport Playback Controls */}
+      <div className="z-10 flex shrink-0 items-center gap-2">
         {/* Canvas Stage View Controls (Fit Stage) */}
         <div className="flex items-center shrink-0 w-[78px]">
           <DropdownMenu
@@ -602,11 +624,33 @@ export function TimelineToolbar({
       </div>
 
       {/* Right: Selected Media Info + Zoom Controls */}
-      <div className="z-10 ml-auto flex shrink-0 items-center gap-2">
+      <div className="z-10 ml-auto flex shrink-0 items-center gap-1.5">
+        <IconButton
+          label="Timeline snapping"
+          size="sm"
+          variant="ghost"
+          aria-pressed={snappingEnabled}
+          className="aria-pressed:bg-studio-panel aria-pressed:text-brand"
+          onClick={() => setSnappingEnabled(!snappingEnabled)}
+        >
+          <Magnet className="size-4" />
+        </IconButton>
+        <IconButton
+          label={showTrackHeaders ? "Hide tracks" : "Show tracks"}
+          size="sm"
+          variant="ghost"
+          aria-pressed={showTrackHeaders}
+          className="aria-pressed:bg-studio-panel aria-pressed:text-brand"
+          onClick={toggleTrackHeaders}
+          disabled={!hasTracks}
+        >
+          <Layers className="size-4" />
+        </IconButton>
+        <div className="mx-0.5 h-4 w-px bg-studio-border" />
         {/* Selected Media Indicator (Only displayed when media is selected) */}
         {(selectedMediaName || selectedMediaDetails) ? (
           <>
-            <div className="flex items-center gap-1.5 font-mono text-studio-muted text-[11px] whitespace-nowrap shrink-0">
+            <div className="flex items-center gap-1.5 font-mono text-studio-muted text-[11px] whitespace-nowrap shrink-0 @max-[1320px]/timeline:hidden">
               <span
                 className="max-w-[80px] truncate font-medium text-studio-fg/90"
                 title={selectedClip?.name || selectedMediaName || undefined}
@@ -620,7 +664,7 @@ export function TimelineToolbar({
                 </>
               )}
             </div>
-            <div className="h-3.5 w-px bg-studio-border" />
+            <div className="h-3.5 w-px bg-studio-border @max-[1320px]/timeline:hidden" />
           </>
         ) : null}
 
@@ -679,15 +723,15 @@ export function TimelineToolbar({
 
         {/* Timeline Zoom Slider Controls */}
         <div className="flex w-36 shrink-0 items-center gap-1">
-          <Tooltip content="Reset zoom" position="top">
+          <Tooltip content="Fit timeline" position="top">
             <button
               type="button"
-              aria-label="Reset zoom"
+              aria-label="Fit timeline"
               className="p-1 rounded text-studio-fg/85 hover:text-studio-fg bg-transparent hover:bg-transparent cursor-pointer transition-colors"
               onClick={handleResetZoom}
               disabled={!hasTimelineMedia}
             >
-              <MoveVertical className="h-3.5 w-3.5" />
+              <ScanLine className="size-4" />
             </button>
           </Tooltip>
 
@@ -702,7 +746,7 @@ export function TimelineToolbar({
                 }
                 disabled={!hasTimelineMedia || zoom <= minimumTimelineZoom}
               >
-                <Minus className="h-3.5 w-3.5" />
+                <ZoomOut className="size-4" />
               </button>
             </Tooltip>
             <Slider
@@ -727,7 +771,7 @@ export function TimelineToolbar({
                 }
                 disabled={!hasTimelineMedia || zoom >= MAX_TIMELINE_ZOOM}
               >
-                <Plus className="h-3.5 w-3.5" />
+                <ZoomIn className="size-4" />
               </button>
             </Tooltip>
           </div>

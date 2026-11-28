@@ -1,16 +1,5 @@
-import React, { useState } from "react";
-import {
-  Palette,
-  Sparkles,
-  Sun,
-  Contrast,
-  Droplets,
-  RotateCcw,
-  Sliders,
-  Check,
-  ChevronDown,
-  ChevronRight,
-} from "lucide-react";
+import { Check, ChevronDown, ChevronRight } from "lucide-react";
+import { InspectorSegments, InspectorTabLayout, inspectorSliderStyle } from "./InspectorTabLayout";
 import type { Adjustments, TimelineClip } from "@/modules/editor/types";
 import { useProjectStore } from "@/modules/projects";
 import { Slider } from "@/shared/components/ui/Slider";
@@ -174,10 +163,9 @@ const FILTER_PRESETS: ColorFilterPreset[] = [
 export function AdjustTab({ clip }: AdjustTabProps) {
   const updateClip = useProjectStore((state) => state.updateClip);
   const adjustments = clip.adjustments || defaultAdjustments;
-  const [presetsExpanded, togglePresetsExpanded] = useInspectorExpanded("adjust.colorLook", false);
-  const [brightnessExpanded, toggleBrightnessExpanded] = useInspectorExpanded("adjust.brightness", false);
-  const [contrastExpanded, toggleContrastExpanded] = useInspectorExpanded("adjust.contrast", false);
-  const [saturationExpanded, toggleSaturationExpanded] = useInspectorExpanded("adjust.saturation", false);
+  const [brightnessExpanded, toggleBrightnessExpanded] = useInspectorExpanded("adjust.brightness", true);
+  const [contrastExpanded, toggleContrastExpanded] = useInspectorExpanded("adjust.contrast", true);
+  const [saturationExpanded, toggleSaturationExpanded] = useInspectorExpanded("adjust.saturation", true);
   const [blurExpanded, toggleBlurExpanded] = useInspectorExpanded("adjust.blur", false);
   const [colorModeExpanded, toggleColorModeExpanded] = useInspectorExpanded("adjust.colorMode", false);
 
@@ -219,61 +207,21 @@ export function AdjustTab({ clip }: AdjustTabProps) {
   });
 
   return (
-    <div className="flex flex-col text-xs text-studio-fg pb-3 select-none">
-      {/* Row 1: Color Look / Presets */}
-      <div className="py-2.5 border-b border-studio-border">
-        <div
-          role="button"
-          tabIndex={0}
-          aria-expanded={presetsExpanded}
-          onClick={togglePresetsExpanded}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              togglePresetsExpanded();
-            }
-          }}
-          className="flex items-center justify-between cursor-pointer group select-none rounded-sm px-1 -mx-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-studio-fg/40"
-        >
-          <span className="text-studio-muted group-hover:text-studio-fg font-medium transition-colors">
-            Color look
-          </span>
-          <div className="flex items-center gap-1.5 font-medium text-studio-fg transition-colors text-xs">
-            <span>{activePreset?.name || "Custom"}</span>
-            {presetsExpanded ? (
-              <ChevronDown className="h-3.5 w-3.5 text-studio-muted group-hover:text-studio-fg" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5 text-studio-muted group-hover:text-studio-fg" />
-            )}
-          </div>
-        </div>
-
-        {/* Presets Grid when expanded */}
-        {presetsExpanded && (
-          <div className="mt-2.5 grid grid-cols-4 gap-1.5 pt-0.5">
-            {FILTER_PRESETS.map((preset) => {
-              const isActive = activePreset?.id === preset.id;
-              return (
-                <button
-                  key={preset.id}
-                  type="button"
-                  onClick={() => applyFilterPreset(preset)}
-                  className={cn(
-                    "py-1.5 px-1 rounded-md text-center text-[10px] font-medium transition-all cursor-pointer truncate",
-                    isActive
-                      ? "bg-studio-hover text-studio-fg font-semibold border border-studio-border shadow-xs"
-                      : "bg-studio-panel-raised/50 text-studio-muted hover:bg-studio-hover hover:text-studio-fg border border-studio-border"
-                  )}
-                  title={`${preset.name} (${preset.subtitle})`}
-                >
-                  {preset.name}
-                </button>
-              );
-            })}
-          </div>
-        )}
+    <InspectorTabLayout header={<InspectorSegments label="Adjustment tools" items={["Basic", "HSL", "Curves", "Color wheel", "Mask"]} />} onReset={resetAll}>
+      <div className="border-b border-studio-border pb-3 text-xs">
+        <h3 className="mb-2 font-semibold">Color look</h3>
+        <label className="flex items-center justify-between gap-3 text-studio-muted">
+          Name
+          <select value={activePreset?.id ?? ""} onChange={(event) => {
+            const preset = FILTER_PRESETS.find(({ id }) => id === event.target.value);
+            if (preset) applyFilterPreset(preset);
+          }} className="min-w-0 flex-1 rounded-md border border-studio-border bg-studio-bg px-2 py-1.5 text-studio-fg">
+            <option value="" disabled>Custom</option>
+            {FILTER_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+          </select>
+        </label>
       </div>
-
+      <h3 className="pt-3 font-semibold">Adjust</h3>
       {/* Row 2: Brightness */}
       <div className="py-2.5 border-b border-studio-border">
         <div
@@ -323,8 +271,8 @@ export function AdjustTab({ clip }: AdjustTabProps) {
               min={0}
               max={2}
               step={0.05}
-              fillClassName="bg-studio-fg group-hover:bg-studio-fg"
-              trackClassName="bg-studio-hover"
+              {...inspectorSliderStyle}
+              aria-label="Brightness"
               onValueChange={(val) => updateAdjustment("brightness", val)}
             />
             <div className="grid grid-cols-3 gap-1 pt-1">
@@ -401,8 +349,8 @@ export function AdjustTab({ clip }: AdjustTabProps) {
               min={0}
               max={2}
               step={0.05}
-              fillClassName="bg-studio-fg group-hover:bg-studio-fg"
-              trackClassName="bg-studio-hover"
+              {...inspectorSliderStyle}
+              aria-label="Contrast"
               onValueChange={(val) => updateAdjustment("contrast", val)}
             />
             <div className="grid grid-cols-3 gap-1 pt-1">
@@ -479,8 +427,8 @@ export function AdjustTab({ clip }: AdjustTabProps) {
               min={0}
               max={2}
               step={0.05}
-              fillClassName="bg-studio-fg group-hover:bg-studio-fg"
-              trackClassName="bg-studio-hover"
+              {...inspectorSliderStyle}
+              aria-label="Saturation"
               onValueChange={(val) => updateAdjustment("saturation", val)}
             />
             <div className="grid grid-cols-3 gap-1 pt-1">
@@ -557,8 +505,8 @@ export function AdjustTab({ clip }: AdjustTabProps) {
               min={0}
               max={20}
               step={1}
-              fillClassName="bg-studio-fg group-hover:bg-studio-fg"
-              trackClassName="bg-studio-hover"
+              {...inspectorSliderStyle}
+              aria-label="Blur"
               onValueChange={(val) => updateAdjustment("blur", val)}
             />
             <div className="grid grid-cols-4 gap-1 pt-1">
@@ -688,17 +636,6 @@ export function AdjustTab({ clip }: AdjustTabProps) {
           </div>
         )}
       </div>
-
-      {/* Row 7: Reset Action */}
-      <div className="pt-3">
-        <button
-          type="button"
-          onClick={resetAll}
-          className="h-7 w-full flex items-center justify-center gap-1.5 rounded-lg border border-studio-border bg-studio-panel-raised/40 text-xs text-studio-muted hover:border-studio-border-strong hover:bg-studio-hover hover:text-studio-fg cursor-pointer transition-all"
-        >
-          <RotateCcw className="h-3 w-3 text-studio-muted" /> Reset Adjustments
-        </button>
-      </div>
-    </div>
+    </InspectorTabLayout>
   );
 }
