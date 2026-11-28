@@ -291,7 +291,7 @@ export const useEditorUIStore = create<EditorUIState>()(
         }),
     })),
     {
-      name: "cutnora-editor-ui-store",
+      name: "salvador-editor-ui-store",
       version: 2,
       migrate: (persistedState) => {
         const saved = persistedState as Partial<EditorUIState> | undefined;

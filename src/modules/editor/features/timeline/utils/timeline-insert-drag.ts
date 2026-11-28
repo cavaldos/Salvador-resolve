@@ -2,7 +2,7 @@ import type { DragEvent } from "react";
 import { nanoid } from "nanoid";
 import type { TimelineClip, Track } from "@/modules/editor/types";
 
-const dragType = "application/x-cutnora-timeline-item";
+const dragType = "application/x-salvador-timeline-item";
 
 export interface TimelineInsertPosition {
   time: number;

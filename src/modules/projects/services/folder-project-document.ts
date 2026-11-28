@@ -53,7 +53,7 @@ export function readFolderProject(document: string) {
   try {
     return documentSchema.parse(JSON.parse(document));
   } catch {
-    throw new Error("Cutnora.cutnora.json is invalid or from a newer Cutnora version.");
+    throw new Error("Salvador.salvador.json is invalid or from a newer Salvador version.");
   }
 }
 

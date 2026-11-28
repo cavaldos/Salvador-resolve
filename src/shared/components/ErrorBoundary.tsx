@@ -25,7 +25,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('Cutnora ErrorBoundary caught an exception:', error, errorInfo);
+    console.error('Salvador ErrorBoundary caught an exception:', error, errorInfo);
   }
 
   private handleReset = () => {

@@ -8,7 +8,7 @@ const structuredData = {
       "@type": "WebSite",
       "@id": `${siteConfig.url}/#website`,
       name: siteConfig.name,
-      alternateName: "Cutnora Video Editor",
+      alternateName: "Salvador Video Editor",
       url: siteConfig.url,
       description: siteConfig.description,
       inLanguage: "en",
@@ -37,12 +37,9 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-mkt-bg text-mkt-fg">
       <link rel="canonical" href={siteConfig.url} />
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          __html: JSON.stringify(structuredData).replace(/</g, "\\u003c"),
-        }}
-      />
+      <script type="application/ld+json">
+        {JSON.stringify(structuredData).replace(/</g, "\\u003c")}
+      </script>
       <MinimalLanding />
     </div>
   );

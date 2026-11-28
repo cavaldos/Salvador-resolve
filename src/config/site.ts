@@ -1,17 +1,17 @@
 export const siteConfig = {
-  name: "Cutnora",
+  name: "Salvador",
   // Public production domain used by SEO metadata, social cards, and the sitemap.
-  url: "https://cutnora.app",
-  title: "Cutnora — Online Video Editor",
+  url: "https://salvador.app",
+  title: "Salvador — Online Video Editor",
   description:
-    "Edit video in your browser with Cutnora. Trim clips, layer text and audio, and export MP4 or WebM. Your media and projects stay on your device.",
+    "Edit video in your browser with Salvador. Trim clips, layer text and audio, and export MP4 or WebM. Your media and projects stay on your device.",
   socialImage: {
     url: "/images/og-image/og-image.png",
-    alt: "Cutnora — edit video directly in your browser",
+    alt: "Salvador — edit video directly in your browser",
     width: 1672,
     height: 941,
   },
-  githubRepoUrl: "https://github.com/kuldeeprajput-dev/cutnora",
+  githubRepoUrl: "https://github.com/kuldeeprajput-dev/salvador",
   twitterUrl: "https://x.com/kuldeepdotcom",
   twitterHandle: "@kuldeepdotcom",
 } as const;

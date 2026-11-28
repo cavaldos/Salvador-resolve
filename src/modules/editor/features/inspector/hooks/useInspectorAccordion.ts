@@ -25,7 +25,7 @@ export const useInspectorAccordionStore = create<InspectorAccordionStore>()(
         }),
     }),
     {
-      name: "cutnora-inspector-accordion-state",
+      name: "salvador-inspector-accordion-state",
     }
   )
 );

@@ -26,7 +26,7 @@ test("a large export sends ordered binary chunks, then commits the same job", as
       return "job";
     }
     if (cmd === "write_export_chunk") {
-      assert.equal(options.headers["cutnora-export-id"], "job");
+      assert.equal(options.headers["salvador-export-id"], "job");
       assert.deepEqual(new Uint8Array(args), expected.shift());
       return;
     }

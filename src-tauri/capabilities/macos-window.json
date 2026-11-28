@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "macos-window",
-  "description": "Make the Cutnora app headers draggable on macOS",
+  "description": "Make the Salvador app headers draggable on macOS",
   "platforms": ["macOS"],
   "windows": ["main"],
   "permissions": [

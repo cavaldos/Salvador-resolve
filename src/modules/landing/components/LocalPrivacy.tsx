@@ -68,7 +68,7 @@ export function LocalPrivacy() {
               size={22}
             />
             <DeviceNode
-              label="Cutnora in your browser"
+              label="Salvador in your browser"
               description="Edit locally on this device"
             >
               <div className="border-studio-border-strong bg-studio-bg laptop:w-31.25 compact:w-37.5 phone:w-21.25 phone:h-21 narrow:w-19 h-26.25 w-37 overflow-hidden rounded-[7px] border">

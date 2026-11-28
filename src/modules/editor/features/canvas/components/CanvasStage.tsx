@@ -10,7 +10,7 @@ import { clampTextScale, defaultTextStyle, scaleTextStyle } from '@/modules/edit
 import { FullscreenPlaybackControls } from './FullscreenPlaybackControls';
 
 const MOBILE_CANVAS_QUERY = '(max-width: 1023px)';
-const MOBILE_PINCH_START_EVENT = 'cutnora:mobile-pinch-start';
+const MOBILE_PINCH_START_EVENT = 'salvador:mobile-pinch-start';
 
 function getPointerDistance(first: Point, second: Point) {
   return Math.hypot(second.x - first.x, second.y - first.y);

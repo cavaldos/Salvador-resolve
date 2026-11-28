@@ -48,7 +48,7 @@ export function EditorPreview() {
   return (
     <div
       className="border-studio-border-strong bg-studio-panel text-studio-fg phone:rounded-[9px] overflow-hidden rounded-xl border text-[11px] shadow-[0_16px_50px_-20px_rgb(0_0_0_/_15%)] dark:shadow-[0_18px_60px_-20px_rgb(0_0_0_/_55%)]"
-      aria-label="Illustrative Cutnora workspace with sample coastal media"
+      aria-label="Illustrative Salvador workspace with sample coastal media"
     >
       <div className="bg-studio-topbar phone:h-11 phone:px-2.5 phone:[&>div]:gap-1.75 phone:[&_strong]:text-[10px] relative flex h-11 items-center justify-between px-3.5 [border-bottom:1px_solid_var(--studio-border)] [&_strong]:text-[11px] [&_strong]:font-semibold [&>div]:flex [&>div]:items-center [&>div]:gap-3.25">
         <div>

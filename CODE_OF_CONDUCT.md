@@ -1,14 +1,14 @@
-# Cutnora Code of Conduct
+# Salvador Code of Conduct
 
-Cutnora welcomes people who want to improve the project, learn, and help others.
+Salvador welcomes people who want to improve the project, learn, and help others.
 Everyone participating in its community is expected to treat others with
 respect, regardless of background, identity, disability, experience, or skill.
 
 ## Where this applies
 
-This policy applies to the Cutnora repository, issues, pull requests,
+This policy applies to the Salvador repository, issues, pull requests,
 discussions, code reviews, and other project-managed community spaces. It also
-applies when someone is officially representing Cutnora elsewhere.
+applies when someone is officially representing Salvador elsewhere.
 
 ## Expected behavior
 

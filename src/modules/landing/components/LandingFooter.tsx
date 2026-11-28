@@ -17,7 +17,7 @@ export function LandingFooter() {
           className="text-studio-fg phone:gap-1.75 phone:[&>span:first-child]:w-6.25! phone:[&>span:first-child]:h-6.25! inline-flex items-center gap-2.25 text-[17px] font-bold tracking-[-0.8px]"
         >
           <BrandMark size={25} />
-          <span>Cutnora</span>
+          <span>Salvador</span>
         </Link>
         <p>A creative workspace. On your own terms.</p>
         <nav aria-label="Footer navigation">
@@ -35,7 +35,7 @@ export function LandingFooter() {
         </nav>
       </div>
       <div className="text-studio-muted phone:flex-wrap phone:gap-[8px_16px] phone:items-center phone:mt-5 phone:text-[11px] phone:leading-[1.6] phone:[&>a]:min-h-11 mt-6.25 flex items-center justify-between text-[9px] [&>a]:flex [&>a]:items-center [&>a]:gap-1.25 [&>a]:text-[inherit]">
-        <span>© {new Date().getFullYear()} Cutnora</span>
+        <span>© {new Date().getFullYear()} Salvador</span>
         <a
           href={siteConfig.twitterUrl}
           target="_blank"

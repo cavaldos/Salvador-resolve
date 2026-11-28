@@ -4,7 +4,7 @@ import { cn } from "@/shared/utils/cn";
 import { IconButton } from "@/shared/components/ui/IconButton";
 import type { ButtonSize } from "@/shared/components/ui/Button";
 
-const THEME_STORAGE_KEY = "cutnora_theme";
+const THEME_STORAGE_KEY = "salvador_theme";
 
 function applyTheme(theme: "light" | "dark") {
   document.documentElement.dataset.theme = theme;
@@ -15,12 +15,14 @@ function applyTheme(theme: "light" | "dark") {
   }
   try {
     localStorage.setItem(THEME_STORAGE_KEY, theme);
-  } catch {}
+  } catch (error) {
+    void error;
+  }
   document
     .querySelector('meta[name="theme-color"]')
     ?.setAttribute("content", theme === "dark" ? "#0d0d0d" : "#fafafa");
   window.dispatchEvent(
-    new CustomEvent("cutnora-theme-change", { detail: theme }),
+    new CustomEvent("salvador-theme-change", { detail: theme }),
   );
 }
 
@@ -61,9 +63,9 @@ export function ThemeToggle({
       );
     };
 
-    window.addEventListener("cutnora-theme-change", onThemeChange);
+    window.addEventListener("salvador-theme-change", onThemeChange);
     return () =>
-      window.removeEventListener("cutnora-theme-change", onThemeChange);
+      window.removeEventListener("salvador-theme-change", onThemeChange);
   }, []);
 
   const toggleTheme = () => {

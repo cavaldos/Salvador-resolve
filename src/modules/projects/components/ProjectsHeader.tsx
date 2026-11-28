@@ -18,7 +18,7 @@ export function ProjectsHeader({ searchQuery, onSearchChange }: ProjectsHeaderPr
           </span>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg leading-tight font-semibold">Cutnora</h1>
+              <h1 className="text-lg leading-tight font-semibold">Salvador</h1>
               <span className="rounded-full border border-studio-border bg-studio-panel-raised px-2 py-0.5 font-mono text-[10px] text-studio-muted">v{version}</span>
             </div>
             <p className="text-xs text-studio-muted">Desktop Non-Linear Video Editor</p>

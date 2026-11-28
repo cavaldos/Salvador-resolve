@@ -1,11 +1,11 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="public/brand/cutnora-logo-dark.svg">
-    <img src="public/brand/cutnora-logo.svg" alt="Cutnora" width="96" height="96">
+    <source media="(prefers-color-scheme: dark)" srcset="public/brand/salvador-logo-dark.svg">
+    <img src="public/brand/salvador-logo.svg" alt="Salvador" width="96" height="96">
   </picture>
 </p>
 
-<h1 align="center">Cutnora</h1>
+<h1 align="center">Salvador</h1>
 
 <h3 align="center">Local-first Video Editor, Multi-track Timeline &amp; Browser Export</h3>
 
@@ -26,7 +26,7 @@
   <a href="#run-locally">Get started</a> ·
   <a href="#what-you-can-create">Features</a> ·
   <a href="CONTRIBUTING.md">Contribute</a> ·
-  <a href="https://github.com/kuldeeprajput-dev/cutnora/issues">Issues</a>
+  <a href="https://github.com/kuldeeprajput-dev/salvador/issues">Issues</a>
 </p>
 
 ---
@@ -41,7 +41,7 @@
 ## Editor preview
 
 <p align="center">
-  <img src="docs/assets/cutnora-editor-preview.png" alt="Cutnora's dark editor showing sample coastal footage, a media library, clip adjustment controls, and video, text, and audio tracks." width="1200">
+  <img src="docs/assets/salvador-editor-preview.png" alt="Salvador's dark editor showing sample coastal footage, a media library, clip adjustment controls, and video, text, and audio tracks." width="1200">
 </p>
 
 <p align="center"><sub>Edited screenshot with illustrative sample media.</sub></p>
@@ -70,11 +70,11 @@
 
 ## Run locally
 
-For the Tauri app, see the [Cutnora Desktop setup and Rust migration status](docs/desktop.md).
+For the Tauri app, see the [Salvador Desktop setup and Rust migration status](docs/desktop.md).
 
 ### 1. Install the prerequisites
 
-Install [Git](https://git-scm.com/downloads) and [Node.js 24](https://nodejs.org/en/download). Cutnora uses **pnpm 11.20.0**.
+Install [Git](https://git-scm.com/downloads) and [Node.js 24](https://nodejs.org/en/download). Salvador uses **pnpm 11.20.0**.
 
 If you don't already have pnpm, install it after Node.js:
 
@@ -85,8 +85,8 @@ npm install --global pnpm@11.20.0
 ### 2. Clone and start
 
 ```bash
-git clone https://github.com/kuldeeprajput-dev/cutnora.git
-cd cutnora
+git clone https://github.com/kuldeeprajput-dev/salvador.git
+cd salvador
 pnpm install --frozen-lockfile
 pnpm dev
 ```
@@ -115,17 +115,17 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for contribution checks and pull request
 The public domain is configured once in [`src/config/site.ts`](src/config/site.ts):
 
 ```ts
-url: "https://cutnora.app",
+url: "https://salvador.app",
 ```
 
 Metadata, canonical URLs, the sitemap, and social previews use this value.
 
 After deploying:
 
-1. Add `cutnora.app` as a custom domain in your hosting dashboard and apply the DNS records provided by your host.
-2. Choose `https://cutnora.app` as the primary domain. Redirect any alternate hostnames, such as `www.cutnora.app`, to it through your host if you enable them.
+1. Add `salvador.app` as a custom domain in your hosting dashboard and apply the DNS records provided by your host.
+2. Choose `https://salvador.app` as the primary domain. Redirect any alternate hostnames, such as `www.salvador.app`, to it through your host if you enable them.
 3. Confirm `/robots.txt`, `/sitemap.xml`, and `/images/og-image/og-image.png` load on the deployed domain.
-4. Add a **Domain property** for `cutnora.app` in [Google Search Console](https://search.google.com/search-console), verify ownership using its DNS TXT record, and submit `https://cutnora.app/sitemap.xml`.
+4. Add a **Domain property** for `salvador.app` in [Google Search Console](https://search.google.com/search-console), verify ownership using its DNS TXT record, and submit `https://salvador.app/sitemap.xml`.
 
 The sitemap lists the public landing page. Editor and local project routes use `noindex` metadata and are excluded from the sitemap; crawlers can still access them to read that metadata.
 
@@ -139,13 +139,13 @@ Built with Vite, React, TypeScript, and Tailwind CSS. The desktop app is package
 
 Bug reports, documentation, accessibility fixes, and focused editor improvements are welcome.
 
-- [Open an issue](https://github.com/kuldeeprajput-dev/cutnora/issues) to report a bug or suggest a feature.
+- [Open an issue](https://github.com/kuldeeprajput-dev/salvador/issues) to report a bug or suggest a feature.
 - Read the [contribution guide](CONTRIBUTING.md) before submitting a pull request.
 - Follow the [Code of Conduct](CODE_OF_CONDUCT.md) in project discussions.
 - Report vulnerabilities privately using [SECURITY.md](SECURITY.md).
 
 ## License
 
-Cutnora's original code is available under the [MIT License](LICENSE). Third-party dependencies and assets retain their own licenses.
+Salvador's original code is available under the [MIT License](LICENSE). Third-party dependencies and assets retain their own licenses.
 
 Copyright © 2026 [Kuldeep Rajput](https://github.com/kuldeeprajput-dev).

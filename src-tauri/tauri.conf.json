@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Cutnora",
+  "productName": "Salvador",
   "version": "0.1.0",
-  "identifier": "dev.kuldeeprajput.cutnora",
+  "identifier": "dev.kuldeeprajput.salvador",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:3000",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Cutnora",
+        "title": "Salvador",
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "trafficLightPosition": { "x": 12, "y": 15 },

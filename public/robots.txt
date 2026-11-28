@@ -1,3 +1,3 @@
 User-agent: *
 Allow: /
-Sitemap: https://cutnora.app/sitemap.xml
+Sitemap: https://salvador.app/sitemap.xml

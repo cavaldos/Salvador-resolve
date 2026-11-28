@@ -1,6 +1,6 @@
 # Security Policy
 
-This policy describes how to report security vulnerabilities in Cutnora, its
+This policy describes how to report security vulnerabilities in Salvador, its
 browser video editor, and the code distributed in this repository.
 
 ## Supported versions
@@ -15,7 +15,7 @@ maintained by their respective owners.
 
 Email the maintainer, Kuldeep Rajput, at
 [contact.kuldeeprajput@gmail.com](mailto:contact.kuldeeprajput@gmail.com), using
-the subject **Cutnora security report**.
+the subject **Salvador security report**.
 
 Do not disclose vulnerability details in a public issue, discussion, or pull
 request before coordinating with the maintainer. If GitHub's **Report a
@@ -37,7 +37,7 @@ how to reproduce with a small synthetic sample whenever possible.
 
 ## Project-specific scope
 
-Cutnora processes media in the browser and stores projects and assets locally
+Salvador processes media in the browser and stores projects and assets locally
 using IndexedDB and, where supported, the Origin Private File System (OPFS).
 Its elements library can request assets from external providers. Relevant
 security concerns include:
@@ -47,12 +47,12 @@ security concerns include:
   elements, text, project metadata, or external assets.
 - Unauthorized access to, modification of, or deletion of stored project data.
 - Exploitable flaws in media decoding, recording, rendering, or export paths.
-- Dependency vulnerabilities with a demonstrated impact on Cutnora.
+- Dependency vulnerabilities with a demonstrated impact on Salvador.
 
 Ordinary UI bugs, export quality problems, or performance issues should follow
 [CONTRIBUTING.md](CONTRIBUTING.md), unless they have a security impact.
 Browser or third-party service vulnerabilities should also be reported to the
-appropriate vendor; explain any Cutnora-specific impact in your report.
+appropriate vendor; explain any Salvador-specific impact in your report.
 
 ## Investigation and disclosure
 

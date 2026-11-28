@@ -78,12 +78,12 @@ export function ProjectsLaunch({ busy, onCreate, onImport, onOpenFolder, onRecor
           ) : (
             <button type="button" disabled className={actionClass}>
               <FileCode2 className="size-4 shrink-0" aria-hidden="true" />
-              <span><span className="block text-sm font-semibold">Open Project File</span><span className="block text-xs">Not available in Cutnora</span></span>
+              <span><span className="block text-sm font-semibold">Open Project File</span><span className="block text-xs">Not available in Salvador</span></span>
             </button>
           )}
           <button type="button" disabled className={actionClass}>
             <LayoutTemplate className="size-4 shrink-0" aria-hidden="true" />
-            <span><span className="block text-sm font-semibold">Templates</span><span className="block text-xs">Not available in Cutnora</span></span>
+            <span><span className="block text-sm font-semibold">Templates</span><span className="block text-xs">Not available in Salvador</span></span>
           </button>
         </div>
       </section>
@@ -100,7 +100,7 @@ export function ProjectsLaunch({ busy, onCreate, onImport, onOpenFolder, onRecor
           </button>
           <button type="button" disabled className={`${actionClass} bg-studio-panel`}>
             <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-emerald-400/25 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300"><Smartphone className="size-5" aria-hidden="true" /></span>
-            <span><span className="block text-sm font-semibold">Phone Transfer</span><span className="mt-0.5 block text-xs">Not available in Cutnora</span></span>
+            <span><span className="block text-sm font-semibold">Phone Transfer</span><span className="mt-0.5 block text-xs">Not available in Salvador</span></span>
           </button>
         </div>
       </section>

@@ -1,9 +1,9 @@
 [package]
-name = "cutnora"
+name = "salvador"
 version = "0.1.0"
-description = "Cutnora desktop video editor"
+description = "Salvador desktop video editor"
 license = "MIT"
-repository = "https://github.com/kuldeeprajput-dev/cutnora"
+repository = "https://github.com/kuldeeprajput-dev/salvador"
 edition = "2024"
 rust-version = "1.90"
 

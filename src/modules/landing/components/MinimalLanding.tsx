@@ -11,7 +11,7 @@ import { FinalEditorCta } from "./FinalEditorCta";
 
 export function MinimalLanding() {
   return (
-    <div className="cutnora-landing bg-mkt-bg text-studio-fg phone:pt-2.5 phone:[&_:is(section,main)[id]]:[scroll-margin-top:96px] min-h-[100vh] pt-4 font-sans motion-reduce:[&_*]:animate-none! motion-reduce:[&_*]:transition-none! [&_:is(a,button)]:focus-visible:[outline:2px_solid_var(--studio-fg)] [&_:is(a,button)]:focus-visible:outline-offset-[5px] [&_:is(section,main)[id]]:[scroll-margin-top:112px] [&_:where(svg)]:stroke-[1.7] [&_a]:no-underline [&_button]:cursor-pointer [&_svg]:shrink-0">
+    <div className="salvador-landing bg-mkt-bg text-studio-fg phone:pt-2.5 phone:[&_:is(section,main)[id]]:[scroll-margin-top:96px] min-h-[100vh] pt-4 font-sans motion-reduce:[&_*]:animate-none! motion-reduce:[&_*]:transition-none! [&_:is(a,button)]:focus-visible:[outline:2px_solid_var(--studio-fg)] [&_:is(a,button)]:focus-visible:outline-offset-[5px] [&_:is(section,main)[id]]:[scroll-margin-top:112px] [&_:where(svg)]:stroke-[1.7] [&_a]:no-underline [&_button]:cursor-pointer [&_svg]:shrink-0">
       <a
         className="bg-brand text-brand-contrast fixed top-[-100px] left-6 z-100 rounded-lg px-5 py-3 [&:focus]:top-6"
         href="#main-content"

@@ -47,7 +47,7 @@ export function InspectorTabLayout({ header, children, onReset }: {
       </div>
       <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-studio-border p-2.5">
         <button type="button" onClick={onReset} disabled={!onReset} className="rounded-lg border border-studio-border bg-studio-panel-raised px-3 py-1.5 text-xs font-medium enabled:cursor-pointer enabled:hover:bg-studio-hover disabled:opacity-50">Reset</button>
-        <span title="Saving clip presets is not available in Cutnora">
+        <span title="Saving clip presets is not available in Salvador">
           <button type="button" disabled className="cursor-not-allowed rounded-lg bg-[#7edbed] px-3 py-1.5 text-xs font-semibold text-[#09252b] opacity-65">Save as preset</button>
         </span>
       </footer>

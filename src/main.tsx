@@ -17,7 +17,7 @@ const EditorPage = lazy(() => import("@/app/editor/page"));
 function WorkspaceMetadata({ title }: { title: string }) {
   return (
     <>
-      <title>{`${title} · Cutnora`}</title>
+      <title>{`${title} · Salvador`}</title>
       <meta name="robots" content="noindex, follow" />
     </>
   );

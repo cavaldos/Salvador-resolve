@@ -1,12 +1,12 @@
-# Contributing to Cutnora
+# Contributing to Salvador
 
-Contributions to Cutnora's browser video editor are welcome: bug fixes,
+Contributions to Salvador's browser video editor are welcome: bug fixes,
 accessibility improvements, documentation, and focused editor improvements.
 Please follow our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Before you start
 
-- Search [existing issues](https://github.com/kuldeeprajput-dev/cutnora/issues)
+- Search [existing issues](https://github.com/kuldeeprajput-dev/salvador/issues)
   and pull requests before opening a new one.
 - For a new feature, dependency, or substantial redesign, open an issue first
   so the scope can be discussed before implementation.
@@ -17,12 +17,12 @@ Please follow our [Code of Conduct](CODE_OF_CONDUCT.md).
 Use Node.js 24 and pnpm 11.20.0, the package manager version specified in
 `package.json`.
 
-1. Fork [Cutnora](https://github.com/kuldeeprajput-dev/cutnora) on GitHub.
+1. Fork [Salvador](https://github.com/kuldeeprajput-dev/salvador) on GitHub.
 2. Clone your fork and create a branch:
 
    ```bash
-   git clone https://github.com/YOUR-USERNAME/cutnora.git
-   cd cutnora
+   git clone https://github.com/YOUR-USERNAME/salvador.git
+   cd salvador
    git switch -c fix/short-description
    pnpm install --frozen-lockfile
    pnpm dev
@@ -123,7 +123,7 @@ local databases, or secrets. Update `pnpm-lock.yaml` when dependencies change.
 ## Licensing
 
 By submitting original code or documentation, you agree that your contribution
-may be distributed under Cutnora's [MIT License](LICENSE). Submit only work you
+may be distributed under Salvador's [MIT License](LICENSE). Submit only work you
 have the right to contribute. Third-party dependencies, fonts, images, icons,
 and sample media retain their own licenses; preserve required notices and
 identify their sources when adding them.

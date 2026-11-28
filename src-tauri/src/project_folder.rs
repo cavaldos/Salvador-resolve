@@ -13,7 +13,7 @@ use tauri_plugin_dialog::DialogExt;
 use tempfile::NamedTempFile;
 use uuid::Uuid;
 
-const PROJECT_FILE: &str = "Cutnora.cutnora.json";
+const PROJECT_FILE: &str = "Salvador.salvador.json";
 const MAX_PROJECT_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Default)]
@@ -106,13 +106,13 @@ fn revision(document: &str) -> String {
 fn project_id(document: &str) -> Result<String, String> {
     let parsed: Value = serde_json::from_str(document).map_err(message)?;
     if parsed["version"].as_u64() != Some(1) {
-        return Err("Unsupported Cutnora project file version.".into());
+        return Err("Unsupported Salvador project file version.".into());
     }
     parsed["project"]["id"]
         .as_str()
         .filter(|id| !id.is_empty())
         .map(str::to_owned)
-        .ok_or_else(|| "Invalid Cutnora project file.".into())
+        .ok_or_else(|| "Invalid Salvador project file.".into())
 }
 
 fn save_project(root: &Path, document: &str, expected: Option<&str>) -> Result<String, String> {
@@ -127,7 +127,7 @@ fn save_project(root: &Path, document: &str, expected: Option<&str>) -> Result<S
     if let Some(previous) = &existing
         && project_id(previous)? != id
     {
-        return Err("This folder already contains a different Cutnora project.".into());
+        return Err("This folder already contains a different Salvador project.".into());
     }
     atomic_write(
         &root.join(PROJECT_FILE),
@@ -253,7 +253,7 @@ pub async fn open_project_folder(
             match app
                 .dialog()
                 .file()
-                .set_title("Open a Cutnora project folder")
+                .set_title("Open a Salvador project folder")
                 .blocking_pick_folder()
             {
                 Some(path) => Some(path.into_path().map_err(message)?),

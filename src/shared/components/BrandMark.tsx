@@ -21,8 +21,8 @@ export function BrandMark({
     >
       {/* Light mode logo */}
       <img
-        src="/brand/cutnora-logo.svg"
-        alt="Cutnora"
+        src="/brand/salvador-logo.svg"
+        alt="Salvador"
         width={size}
         height={size}
         className={cn(
@@ -32,8 +32,8 @@ export function BrandMark({
       />
       {/* Dark mode logo */}
       <img
-        src="/brand/cutnora-logo-dark.svg"
-        alt="Cutnora"
+        src="/brand/salvador-logo-dark.svg"
+        alt="Salvador"
         width={size}
         height={size}
         className={cn(

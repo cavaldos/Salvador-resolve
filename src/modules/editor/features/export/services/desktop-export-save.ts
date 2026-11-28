@@ -14,7 +14,7 @@ export async function saveDesktopExport(blob: Blob, name: string) {
     for (let start = 0; start < blob.size; start += CHUNK_SIZE) {
       const bytes = await blob.slice(start, start + CHUNK_SIZE).arrayBuffer();
       await invoke("write_export_chunk", bytes, {
-        headers: { "cutnora-export-id": id },
+        headers: { "salvador-export-id": id },
       });
     }
     return await invoke<SaveResult>("finish_export_save", { id });

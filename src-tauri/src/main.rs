@@ -18,5 +18,5 @@ fn main() {
             project_folder::save_project_folder,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Cutnora");
+        .expect("error while running Salvador");
 }

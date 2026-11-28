@@ -455,7 +455,7 @@ export function useTransformHandler(
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerUp);
       window.removeEventListener(
-        "cutnora:mobile-pinch-start",
+        "salvador:mobile-pinch-start",
         handleMobilePinchStart,
       );
       setIsDragging(false);
@@ -470,7 +470,7 @@ export function useTransformHandler(
     window.addEventListener("pointerup", handlePointerUp);
     window.addEventListener("pointercancel", handlePointerUp);
     window.addEventListener(
-      "cutnora:mobile-pinch-start",
+      "salvador:mobile-pinch-start",
       handleMobilePinchStart,
     );
   };

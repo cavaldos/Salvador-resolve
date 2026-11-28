@@ -287,7 +287,7 @@ pub async fn write_export_chunk(
 ) -> Result<(), String> {
     let id = request
         .headers()
-        .get("cutnora-export-id")
+        .get("salvador-export-id")
         .and_then(|id| id.to_str().ok())
         .ok_or("Missing export ID.")?;
     let bytes = export_bytes(request.body())?;

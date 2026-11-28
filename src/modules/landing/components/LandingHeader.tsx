@@ -22,10 +22,10 @@ export function LandingHeader() {
         <Link
           to="/"
           className="text-studio-fg compact:text-[19px] phone:gap-1.75 phone:text-[18px] phone:min-h-11 phone:shrink-0 phone:[&>span:first-child]:w-6.25! phone:[&>span:first-child]:h-6.25! inline-flex items-center gap-2.25 text-[21px] font-bold tracking-[-0.8px]"
-          aria-label="Cutnora home"
+          aria-label="Salvador home"
         >
           <BrandMark size={29} />
-          <span>Cutnora</span>
+          <span>Salvador</span>
         </Link>
         <nav
           className="[&_a]:text-studio-muted [&_a:hover]:text-studio-fg laptop:gap-4.25 laptop:ml-0 compact:hidden ml-6.25 flex gap-6.5 [&_a]:text-[12px] [&_a]:font-medium [&_a]:[transition:color_0.2s]"
